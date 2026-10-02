@@ -30,7 +30,8 @@ services:
     volumes:
       - egresslog:/var/log/tinyproxy
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -sf -x http://127.0.0.1:8888 -o /dev/null https://api.deepseek.com/ || curl -s -x http://127.0.0.1:8888 -o /dev/null -w '%{http_code}' https://api.deepseek.com/ | grep -qE '^[2-5]'"]
+      # healthy = the tunnel to the model API is up (any HTTP status, e.g. 401/404, counts)
+      test: ["CMD", "sh", "-c", "curl -s -o /dev/null -m 10 -w '%{http_code}' -x http://127.0.0.1:8888 https://api.deepseek.com/ | grep -qv '^000$'"]
       interval: 10s
       timeout: 15s
       retries: 6
