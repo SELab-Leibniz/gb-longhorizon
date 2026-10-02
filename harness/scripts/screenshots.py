@@ -123,6 +123,17 @@ def agent_mode(a):
     out = a.out
     out.mkdir(parents=True, exist_ok=True)
     summary = {}
+    if not gb.exists():
+        # The graded commit did not build: nothing can boot. Never fall back to
+        # some other binary — that would show screenshots of code not graded.
+        for name, *_ in targets(a.roms, a.golden):
+            summary[name] = {"status": "no_binary", "loaded": False, "exit_code": None,
+                             "frames_captured": [], "stderr_tail": "gb binary missing (build failed)"}
+        (out / "summary.json").write_text(json.dumps(summary, indent=2))
+        (out / "index.html").write_text("<!doctype html><meta charset=utf-8><title>Emulator screenshots</title>"
+                                        "<h1>No screenshots: the graded commit did not build.</h1>")
+        print(f"screenshots: build missing -> {out}")
+        return
     rows_html = []
     for name, rom, script, frames in targets(a.roms, a.golden):
         every = 120 if name == "dmg-acid2" else a.every
