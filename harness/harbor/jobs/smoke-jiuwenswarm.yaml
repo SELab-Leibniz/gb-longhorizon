@@ -1,0 +1,25 @@
+# 20-minute smoke test of the whole stack with jiuwenswarm.
+# adapter loop, chaos kill at minute 8, verifier). Run this first.
+#   harbor run -c harness/harbor/jobs/smoke.yaml
+job_name: gb-smoke-jiuwenswarm
+jobs_dir: jobs
+n_attempts: 1
+orchestrator:
+  type: local
+  n_concurrent_trials: 1
+environment:
+  type: docker
+  force_build: false
+  delete: false      # keep the containers + repo volume for inspection
+agents:
+  - import_path: gb_agents:JiuwenSwarmAgent
+    model_name: deepseek/deepseek-flash
+    env:
+      API_KEY: ${DEEPSEEK_API_KEY}
+    kwargs:
+      run_seconds: 1200
+      chaos_after_sec: 480
+    override_timeout_sec: 1500
+    override_setup_timeout_sec: 600
+tasks:
+  - path: harness/harbor/task
