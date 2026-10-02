@@ -48,6 +48,24 @@ ENV RUSTUP_TOOLCHAIN=1.97.0
 COPY scaffold.tar /tmp/scaffold.tar
 RUN mkdir -p /work && tar -xf /tmp/scaffold.tar -C /work && rm /tmp/scaffold.tar
 WORKDIR /work
+# The demo window (gb-gui) needs a display and pulls ~300 MB of platform
+# crates (windows-sys, wayland, x11...) into the vendor dir. The sandbox is
+# headless, so drop it here; gb-core and gb-cli have zero dependencies.
+# The repo itself keeps gb-gui for the post-run demo.
+RUN sed -i 's/members = \["gb-core", "gb-cli", "gb-gui"\]/members = ["gb-core", "gb-cli"]/' Cargo.toml \
+    && rm -rf gb-gui \
+    && python3 - <<'PYEOF'
+import re, pathlib
+p = pathlib.Path("README.md"); s = p.read_text()
+s = s.replace("A small window front-end (`gb-gui`) exists\nfor demos.", "(A demo window front-end exists outside this headless environment.)")
+s = re.sub(r"^gb-gui/ .*\n", "", s, flags=re.M)
+s = re.sub(r"^cargo run -p gb-gui .*\n", "", s, flags=re.M)
+p.write_text(s)
+assert "gb-gui" not in s, "README still mentions gb-gui"
+PYEOF
+RUN sed -i '/gb-gui/d' Cargo.toml \
+    && grep -q 'members = \["gb-core", "gb-cli"\]' Cargo.toml \
+    && ! grep -q gb-gui Cargo.toml README.md
 RUN harness/scripts/fetch_assets.sh \
     && harness/scripts/vendor.sh \
     && cargo build --release --offline \

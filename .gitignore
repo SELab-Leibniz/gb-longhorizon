@@ -36,3 +36,4 @@ __pycache__/
 /docs/gbctr/
 /docs/opcode_descriptions.json
 /docs/OPCODES_COMMIT
+/.scratch/
