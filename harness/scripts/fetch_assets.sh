@@ -17,8 +17,11 @@ mkdir -p "$ROOT/docs/pandocs"
 cp -r "$TMP/pandocs/src/"*.md "$ROOT/docs/pandocs/"
 (cd "$TMP/pandocs" && git rev-parse HEAD) > "$ROOT/docs/pandocs/COMMIT"
 
-echo "==> Opcode table"
-curl -fsSL https://gbdev.io/gb-opcodes/Opcodes.json -o "$ROOT/docs/opcodes.json"
+echo "==> Opcode table (gbdev/gb-opcodes; also has per-opcode descriptions)"
+git clone --depth 1 https://github.com/gbdev/gb-opcodes "$TMP/gbop"
+cp "$TMP/gbop/Opcodes.json" "$ROOT/docs/opcodes.json"
+cp "$TMP/gbop/OpcodeDescriptions.json" "$ROOT/docs/opcode_descriptions.json"
+(cd "$TMP/gbop" && git rev-parse HEAD) > "$ROOT/docs/OPCODES_COMMIT"
 
 echo "==> Blargg test ROMs (serial-reporting subset)"
 git clone --depth 1 https://github.com/retrio/gb-test-roms "$TMP/blargg"
@@ -31,29 +34,31 @@ cp    "$TMP/blargg/halt_bug.gb"  "$ROOT/roms/test/blargg/"
 # cpu_instrs/individual ROMs are kept because they localise failures.
 find "$ROOT/roms/test/blargg" -type f ! -name '*.gb' -delete
 
-echo "==> Mooneye test suite"
+echo "==> Mooneye test suite (built from source with wla-dx; both from GitHub)"
+git clone --depth 1 https://github.com/vhelin/wla-dx "$TMP/wla"
+(cd "$TMP/wla" && mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. >/dev/null && make -j"$(nproc)" wla-gb wlalink >/dev/null)
 git clone --depth 1 https://github.com/Gekkio/mooneye-test-suite "$TMP/mooneye"
-# The suite ships prebuilt ROMs on the GitHub releases page; building
-# from source needs wla-dx. Prefer the release zip:
-MOONEYE_RELEASE_URL="$(curl -fsSL https://api.github.com/repos/Gekkio/mooneye-test-suite/releases/latest \
-  | grep -o 'https://[^"]*mts-[^"]*\.zip' | head -1)"
-curl -fsSL "$MOONEYE_RELEASE_URL" -o "$TMP/mts.zip"
-mkdir -p "$TMP/mts" && (cd "$TMP/mts" && unzip -q ../mts.zip)
-MTS_DIR="$(find "$TMP/mts" -maxdepth 2 -type d -name 'acceptance' -exec dirname {} \; | head -1)"
-mkdir -p "$ROOT/roms/test/mooneye"
-cp -r "$MTS_DIR/acceptance" "$ROOT/roms/test/mooneye/"
+(cd "$TMP/mooneye" && PATH="$TMP/wla/build/binaries:$PATH" make -j"$(nproc)" all >/dev/null 2>&1)
+MTS_DIR="$TMP/mooneye/build"
+rm -rf "$ROOT/roms/test/mooneye"
 mkdir -p "$ROOT/roms/test/mooneye/emulator-only"
+cp -r "$MTS_DIR/acceptance" "$ROOT/roms/test/mooneye/"
 cp -r "$MTS_DIR/emulator-only/mbc1" "$ROOT/roms/test/mooneye/emulator-only/"
 cp -r "$MTS_DIR/emulator-only/mbc5" "$ROOT/roms/test/mooneye/emulator-only/"
-# Exclusions per roms/README.md
+# Exclusions (see roms/README.md): manual tests, MBC1M multicart, and ROMs
+# whose suffix targets another model. We emulate DMG-B, so keep unsuffixed,
+# -dmgABC, -dmgABCmgb and -GS (G = DMG); drop SGB/SGB2/DMG0/MGB/CGB/AGB.
 rm -rf "$ROOT/roms/test/mooneye/acceptance/manual-only"
 rm -f  "$ROOT/roms/test/mooneye/emulator-only/mbc1/multicart_rom_8Mb.gb"
+find "$ROOT/roms/test/mooneye" -type f -name '*.gb' \
+     \( -name '*-S.gb' -o -name '*-dmg0.gb' -o -name '*-mgb.gb' -o -name '*-sgb.gb' -o -name '*-sgb2.gb' \
+        -o -name '*-A.gb' -o -name '*-C.gb' -o -name '*-cgb*.gb' -o -name '*-agb*.gb' \) -delete
 find "$ROOT/roms/test/mooneye" -type f ! -name '*.gb' -delete
-echo "$MOONEYE_RELEASE_URL" > "$ROOT/roms/test/mooneye/SOURCE"
+(cd "$TMP/mooneye" && git rev-parse HEAD) > "$ROOT/roms/test/mooneye/SOURCE"
 
 echo "==> dmg-acid2"
-ACID_URL="$(curl -fsSL https://api.github.com/repos/mattcurrie/dmg-acid2/releases/latest \
-  | grep -o 'https://[^"]*dmg-acid2\.gb' | head -1)"
+# Pinned release (the GitHub API is not needed; the asset URL is stable).
+ACID_URL="https://github.com/mattcurrie/dmg-acid2/releases/download/v1.0/dmg-acid2.gb"
 mkdir -p "$ROOT/roms/test/acid2"
 curl -fsSL "$ACID_URL" -o "$ROOT/roms/test/acid2/dmg-acid2.gb"
 echo "NOTE: roms/test/acid2/expected.fnv is produced by make_golden.sh"
@@ -77,8 +82,10 @@ declare -A GAMES=(
   [maxpirate]="maxpirate/maxpirate.gb"
   [2048]="2048gb/2048.gb"
 )
+PATTERNS=()
+for name in "${!GAMES[@]}"; do PATTERNS+=("/entries/$(dirname "${GAMES[$name]}")/*"); done
+git -C "$TMP/hub" sparse-checkout set --no-cone "${PATTERNS[@]}"
 for name in "${!GAMES[@]}"; do
-  git -C "$TMP/hub" sparse-checkout add "/entries/${GAMES[$name]}" >/dev/null 2>&1
   cp "$TMP/hub/entries/${GAMES[$name]}" "$ROOT/roms/games/$name.gb"
   echo "   $name.gb"
 done

@@ -26,6 +26,7 @@ use gb_core::{Emulator, StepResult};
 use std::fs;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const FRAMES_PER_SECOND: u64 = 60;
@@ -65,7 +66,19 @@ enum Outcome {
 }
 
 fn run_guarded(name: &str, f: impl FnOnce() -> Outcome) -> Outcome {
-    match panic::catch_unwind(AssertUnwindSafe(f)) {
+    // Capture the panic location ourselves and keep the default hook quiet,
+    // so each ROM produces one readable PANIC line instead of a backtrace.
+    let location: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let loc2 = Arc::clone(&location);
+    let previous = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        if let Some(l) = info.location() {
+            *loc2.lock().unwrap() = Some(format!("{}:{}", l.file(), l.line()));
+        }
+    }));
+    let result = panic::catch_unwind(AssertUnwindSafe(f));
+    panic::set_hook(previous);
+    match result {
         Ok(outcome) => outcome,
         Err(payload) => {
             let msg = payload
@@ -73,7 +86,13 @@ fn run_guarded(name: &str, f: impl FnOnce() -> Outcome) -> Outcome {
                 .cloned()
                 .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
                 .unwrap_or_else(|| "non-string panic".into());
-            Outcome::Panic(format!("{name}: {msg}"))
+            let at = location
+                .lock()
+                .unwrap()
+                .clone()
+                .map(|l| format!(" (at {l})"))
+                .unwrap_or_default();
+            Outcome::Panic(format!("{name}: {msg}{at}"))
         }
     }
 }
