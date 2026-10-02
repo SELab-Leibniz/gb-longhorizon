@@ -33,7 +33,8 @@ RUN rm -rf /work/harness /work/.git /work/target \
 
 # The agent's task statement.
 COPY harness/AGENT_BRIEF.md /work/TASK.md
-RUN touch /work/QUESTIONS.md \
+COPY harness/QUESTIONS_SEED.md /work/QUESTIONS.md
+RUN sed -i '1,/^---$/d' /work/TASK.md \
     && git add TASK.md QUESTIONS.md \
     && git commit -q -m "Add task brief and questions channel"
 

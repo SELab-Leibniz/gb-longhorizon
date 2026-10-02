@@ -75,8 +75,9 @@ class LocalBackend:
         if self.work.exists():
             shutil.rmtree(self.work)
         shutil.copytree(REPO, self.work, ignore=shutil.ignore_patterns("target", ".git", "harness", "vendor"))
-        shutil.copy(HARNESS / "AGENT_BRIEF.md", self.work / "TASK.md")
-        (self.work / "QUESTIONS.md").touch()
+        brief = (HARNESS / "AGENT_BRIEF.md").read_text().split("\n---\n", 1)[1].lstrip()
+        (self.work / "TASK.md").write_text(brief)
+        shutil.copy(HARNESS / "QUESTIONS_SEED.md", self.work / "QUESTIONS.md")
         subprocess.run(["git", "init", "-q"], cwd=self.work, check=True)
         subprocess.run(["git", "-c", "user.email=s@x", "-c", "user.name=Scaffold", "add", "-A"], cwd=self.work, check=True)
         subprocess.run(["git", "-c", "user.email=s@x", "-c", "user.name=Scaffold", "commit", "-q", "-m", "Initial scaffold"], cwd=self.work, check=True)
