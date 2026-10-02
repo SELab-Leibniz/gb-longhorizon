@@ -43,3 +43,6 @@ __pycache__/
 /logs/
 /.chrys/
 /.jiuwenswarm/
+# verifier's pristine ROMs (scripts/build_assets.sh) and their staged copy
+/harness/.assets/
+/harness/harbor/task/tests/roms/

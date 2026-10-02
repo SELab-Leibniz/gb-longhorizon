@@ -6,6 +6,10 @@ set -euo pipefail
 H="$(cd "$(dirname "$0")/.." && pwd)"
 T="$H/harbor/task"
 
+# pristine ROMs for the verifier (built once by scripts/build_assets.sh)
+[ -d "$H/.assets/roms" ] || "$H/scripts/build_assets.sh"
+rm -rf "$T/tests/roms" && cp -R "$H/.assets/roms" "$T/tests/roms"
+
 # verifier
 mkdir -p "$T/tests/golden" "$T/tests/frozen/gb-core/tests" "$T/tests/frozen/gb-cli/src"
 cp "$H/scripts/grade.py" "$H/scripts/screenshots.py" "$T/tests/"

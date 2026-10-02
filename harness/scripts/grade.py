@@ -13,6 +13,7 @@ Tiers
 import argparse
 import json
 import os
+import signal
 import re
 import shutil
 import subprocess
@@ -28,10 +29,47 @@ SAMPLE_EVERY = 60   # compare one frame per second of emulated time
 ALIGN_WINDOW = 2    # ± frames of slack between reference and agent frame numbering
 
 
+HUNG = 124          # exit code sh() reports when it had to kill a command
+
+
 def sh(cmd, cwd, timeout=None, env=None):
+    """Run cmd; on timeout kill its whole process group and return exit code HUNG.
+
+    A hung emulator (say, an infinite loop in step_frame) must cost one
+    timeout, never the grading run: an uncaught TimeoutExpired here would
+    leave no results.json at all and score the trial 0."""
     t = time.time()
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
-    return p.returncode, p.stdout, p.stderr, time.time() - t
+    try:
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                             start_new_session=True)
+    except OSError as e:          # e.g. the binary was never built
+        return 127, "", f"[grader] cannot run {cmd[0]}: {e}", 0.0
+    try:
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode, out, err, time.time() - t
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        out, err = p.communicate()
+        return HUNG, out or "", (err or "") + f"\n[grader] killed after {timeout} s", time.time() - t
+
+
+def run_roms(co, roms, root, runner, max_hung=3):
+    """Run runner(co, rom) -> (status, secs, detail) over roms; after max_hung
+    consecutive wall-clock timeouts the emulator is taken to be hanging and the
+    rest of the family is skipped (counted as failures)."""
+    fam, streak = {}, 0
+    for rom in roms:
+        rel = str(rom.relative_to(root))
+        if streak >= max_hung:
+            fam[rel] = {"status": "skipped", "secs": 0.0, "detail": f"skipped after {max_hung} consecutive hangs"}
+            continue
+        status, secs, detail = runner(co, rom)
+        streak = streak + 1 if status == "hung" else 0
+        fam[rel] = {"status": status, "secs": round(secs, 1), "detail": detail}
+    return fam
 
 
 def tier0(co):
@@ -63,7 +101,9 @@ def gb(co):
 
 
 def run_blargg(co, rom):
-    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--serial-stdout"], co, timeout=600)
+    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--serial-stdout"], co, timeout=300)
+    if code == HUNG:
+        return "hung", secs, err[-300:]
     if code == 2:
         return "panic", secs, err[-500:]
     if "Passed" in out:
@@ -74,14 +114,18 @@ def run_blargg(co, rom):
 
 
 def run_blargg_mem(co, rom):
-    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--blargg-mem"], co, timeout=600)
+    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--blargg-mem"], co, timeout=300)
+    if code == HUNG:
+        return "hung", secs, err[-300:]
     if code == 2:
         return "panic", secs, err[-500:]
     return ("pass" if code == 20 else "fail"), secs, out[-500:]
 
 
 def run_mooneye(co, rom):
-    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(20 * 60), "--mooneye"], co, timeout=300)
+    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(20 * 60), "--mooneye"], co, timeout=120)
+    if code == HUNG:
+        return "hung", secs, err[-300:]
     if code == 2:
         return "panic", secs, err[-500:]
     return ("pass" if code == 10 else "fail"), secs, out[-300:]
@@ -90,10 +134,8 @@ def run_mooneye(co, rom):
 def tier1(co):
     results = {}
     for family, runner in (("blargg", run_blargg), ("blargg-mem", run_blargg_mem), ("mooneye", run_mooneye)):
-        fam = {}
-        for rom in sorted((ROMS / "test" / family).rglob("*.gb")):
-            status, secs, detail = runner(co, rom)
-            fam[str(rom.relative_to(ROMS / "test" / family))] = {"status": status, "secs": round(secs, 1), "detail": detail}
+        root = ROMS / "test" / family
+        fam = run_roms(co, sorted(root.rglob("*.gb")), root, runner)
         n = len(fam)
         p = sum(1 for v in fam.values() if v["status"] == "pass")
         results[family] = {"passed": p, "total": n, "roms": fam}
@@ -135,7 +177,7 @@ def _run_game(co, rom, frames, script):
         code, out, err, secs = sh(
             [gb(co), "--rom", str(rom), "--frames", str(frames), "--input-script", str(script),
              "--dump-every", str(SAMPLE_EVERY), "--dump-dir", td, "--hash"],
-            co, timeout=900,
+            co, timeout=300,
         )
     got = {int(k): v for k, v in re.findall(r"frame (\d+) ([0-9a-f]{16})", out)}
     return code, got, err, secs
@@ -156,8 +198,12 @@ def tier3(co, golden):
       A panic in either run scores 0. A game "passes" at score >= 0.8.
     """
     games = {}
+    hung_streak = 0
     for rom in sorted((ROMS / "games").glob("*.gb")):
         name = rom.stem
+        if hung_streak >= 2:
+            games[name] = {"status": "skipped", "score": 0.0, "detail": "skipped after 2 consecutive hangs"}
+            continue
         gold = golden / f"{name}.fnv"
         meta_p = golden / f"{name}.robust.json"
         script = golden / f"{name}.input"
@@ -168,6 +214,10 @@ def tier3(co, golden):
         meta = json.loads(meta_p.read_text())
         frames, window = meta["frames"], meta.get("window", ALIGN_WINDOW)
         code, got, err, secs = _run_game(co, rom, frames, script)
+        hung_streak = hung_streak + 1 if code == HUNG else 0
+        if code == HUNG:
+            games[name] = {"status": "hung", "score": 0.0, "detail": err[-300:]}
+            continue
         if code == 2:
             games[name] = {"status": "panic", "score": 0.0, "detail": err[-500:]}
             continue
@@ -204,7 +254,8 @@ def tier4(co):
     hashes = []
     for _ in range(2):
         code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", "1800", "--hash"], co, timeout=300)
-        hashes.append(re.search(r"final ([0-9a-f]{16})", out).group(1) if code == 0 else f"exit{code}")
+        mh = re.search(r"final ([0-9a-f]{16})", out)
+        hashes.append(mh.group(1) if (code == 0 and mh) else f"exit{code}")
     r["determinism"] = {"ok": hashes[0] == hashes[1] and not hashes[0].startswith("exit"), "hashes": hashes}
     # Save state: run 600, save; run 600 more → H1. Fresh: load state, run 600 → H2. H1 == H2.
     with tempfile.TemporaryDirectory() as td:
@@ -247,6 +298,14 @@ def main():
 
     report = {"checkout": str(co), "graded_at": int(time.time()), "git_log": git_log(co)}
     tiers = [a.tier] if a.tier is not None else [0, 1, 2, 3, 4]
+    # Write after every tier, so a run cut short by the verifier's time limit
+    # still leaves everything graded so far.
+
+    class Incremental(dict):
+        def __setitem__(self, k, v):
+            super().__setitem__(k, v)
+            a.out.write_text(json.dumps(self, indent=2))
+    report = Incremental(report)
     if 0 in tiers:
         report["tier0"] = tier0(co)
         if not report["tier0"]["build"]["ok"]:
