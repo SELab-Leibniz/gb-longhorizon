@@ -8,7 +8,7 @@ Behaviour, in order:
   4. on its 4th iteration, exit with code 3 (simulated crash)
   5. after restart (detected via a marker file) keep looping forever
 
-Reads GB_ARM / GB_DISABLED_MODULES / GB_TRAJECTORY_DIR like a real agent.
+Reads GB_ARM / GB_TRAJECTORY_DIR like a real agent.
 """
 import json
 import os
@@ -20,7 +20,6 @@ from pathlib import Path
 WORK = Path.cwd()
 TRAJ = Path(os.environ.get("GB_TRAJECTORY_DIR", "/tmp")) / "stub.jsonl"
 ARM = os.environ.get("GB_ARM", "?")
-DISABLED = os.environ.get("GB_DISABLED_MODULES", "")
 MARKER = WORK / ".stub_restarted"
 
 
@@ -50,9 +49,9 @@ def ask(q):
 
 
 def main():
-    traj(event="start", arm=ARM, disabled=DISABLED, restarted=MARKER.exists())
+    traj(event="start", arm=ARM, restarted=MARKER.exists())
     first_run = not MARKER.exists()
-    if first_run and "clarification" not in DISABLED:
+    if first_run:
         ask("Do we need to support Game Boy Color, or is the original Game Boy enough?")
 
     i = 0

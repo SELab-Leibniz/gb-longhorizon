@@ -12,6 +12,7 @@ harness/
   AGENT_BRIEF.md          the only task statement the agent receives
   golden/                 Tier-3 frame hashes + input scripts (generated)
   orchestrator/           run.py (controller), po_agent.py, stub_agent.py
+  agents/                 adapters: icode/, jiuwenswarm/
   ref/                    SameBoy reference runner
   scripts/
     fetch_assets.sh       download Pan Docs, opcode table, test ROMs, homebrew
@@ -53,42 +54,42 @@ match rate. It also records `git log` so the tier-pass curve can be
 replayed against commit timestamps. Run it on each 2-hour snapshot to
 produce the time-series the write-up needs.
 
-## Running an arm: the orchestrator
+## Running an agent: the orchestrator
 
-`orchestrator/run.py` runs one 48-hour arm end to end: creates the
-workspace (sandbox container, or a local directory for dry runs), starts
-the agent, restarts it when it exits, runs the product-owner agent against
-`QUESTIONS.md`, snapshots and grades the repo every 2 h, kills the agent
-hard at hour 20 (the chaos test), and writes everything to
-`harness/runs/<run_id>/`.
+The study is black-box: each coding agent gets the same task, the same
+product-owner channel and the same 48 hours in its shipped configuration.
+`orchestrator/run.py` runs one agent end to end: creates the workspace
+(sandbox container, or a local directory for dry runs), starts the agent
+through its adapter (`agents/`), restarts it when it exits, runs the
+product-owner agent against `QUESTIONS.md`, snapshots and grades the repo
+every 2 h, kills the agent hard at hour 20 (the chaos test), and writes
+everything to `harness/runs/<run_id>/`.
 
 ```sh
 export GB_PO_API_KEY=...                       # DeepSeek / any OpenAI-compatible endpoint
 export GB_PO_BASE_URL=https://api.deepseek.com/v1
 
 # dry run, 6 minutes, no container, stub agent
-python3 harness/orchestrator/run.py --arm full --backend local \
+python3 harness/orchestrator/run.py --arm stub --backend local \
     --agent-cmd "python3 $PWD/harness/orchestrator/stub_agent.py" \
     --hours 0.1 --snapshot-hours 0.033 --chaos-hour 0.05 --chaos-downtime-min 0.2
 
-# real run
-python3 harness/orchestrator/run.py --arm full     --agent-cmd "<your framework's launch command>"
-python3 harness/orchestrator/run.py --arm baseline --agent-cmd "<same command>"
-python3 harness/orchestrator/run.py --arm ablate-memory --agent-cmd "<same command>"
+# real runs (see agents/README.md for the env each adapter needs)
+python3 harness/orchestrator/run.py --arm icode       --agent-cmd "bash /opt/harness/agents/icode/launch.sh"
+python3 harness/orchestrator/run.py --arm jiuwenswarm --agent-cmd "python3 /opt/harness/agents/jiuwenswarm/launch.py"
 ```
 
-### Contract with the agent framework
+### Contract with an agent adapter
 
 The agent is a black box launched by `--agent-cmd` inside the workspace
-(`/work` in the container), with `TASK.md` and an empty `QUESTIONS.md`
-present. It must keep running until killed. Environment:
+(`/work` in the container), with `TASK.md` and `QUESTIONS.md` present. It
+must keep running until killed. Environment:
 
 | Variable | Meaning |
 |---|---|
 | `GB_RUN_ID` | unique run id |
-| `GB_ARM` | `full`, `baseline`, or `ablate-<module>` |
-| `GB_DISABLED_MODULES` | comma-separated subset of `clarification,localization,memory,verifier,compression`; the agent must switch these off |
-| `GB_TRAJECTORY_DIR` | directory the agent should write its trajectory/tool log to; collected with every snapshot |
+| `GB_ARM` | the label given with `--arm` |
+| `GB_TRAJECTORY_DIR` | directory for the agent's own logs; collected with every snapshot |
 
 Questions to the product owner: append `## Q: …` to `QUESTIONS.md`; the
 answer appears as `## A: …` underneath within a couple of minutes.

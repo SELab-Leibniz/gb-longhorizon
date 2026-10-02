@@ -23,7 +23,7 @@ Does not know Rust, hardware internals, or how to fix anything.
 4. If asked for a priority order, give the one in the hidden spec.
 5. If asked "is X in scope?" for something in the non-goals list, say no
    and name the list.
-6. Never mention the harness, grading, golden hashes, the baseline arm, or
+6. Never mention the harness, grading, golden hashes, other agents, or
    that this is an evaluation.
 7. Response latency: answer within 2 minutes of the question appearing.
    The agent should never be blocked on the PO for long; we are measuring

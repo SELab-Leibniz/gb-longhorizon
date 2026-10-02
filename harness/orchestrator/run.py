@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Orchestrator: run one arm of the 48-hour emulator case study.
 
-    run.py --arm full      --agent-cmd "python -m myframework --task TASK.md" [options]
-    run.py --arm baseline  --agent-cmd "..."
-    run.py --arm ablate-memory --agent-cmd "..."
-    run.py --arm full --agent-cmd "python3 /harness/stub_agent.py" --backend local --hours 0.1
+    run.py --arm icode       --agent-cmd "bash /harness/agents/icode/launch.sh" [options]
+    run.py --arm jiuwenswarm --agent-cmd "python3 /harness/agents/jiuwenswarm/launch.py"
+    run.py --arm stub --agent-cmd "python3 /harness/stub_agent.py" --backend local --hours 0.1
 
 Responsibilities
   * create the workspace (docker container from the sandbox image, or a
@@ -17,13 +16,14 @@ Responsibilities
     runs/<run_id>/snapshots/<n>/{repo.bundle,results.json,trajectory/}
 
 The agent is a black box.  Contract (see harness/README.md):
-  env GB_RUN_ID, GB_ARM, GB_DISABLED_MODULES, GB_TRAJECTORY_DIR
+  env GB_RUN_ID, GB_ARM, GB_TRAJECTORY_DIR
   cwd /work, TASK.md present, keep running until killed.
 
 No third-party Python dependencies.
 """
 import argparse
 import json
+import re
 import os
 import shlex
 import shutil
@@ -37,8 +37,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 HARNESS = HERE.parent
 REPO = HARNESS.parent
-
-MODULES = ["clarification", "localization", "memory", "verifier", "compression"]
 
 
 def now():
@@ -218,7 +216,7 @@ def snapshot(backend, run_dir: Path, n: int, log: EventLog, golden: Path, grade_
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--arm", required=True, help="full | baseline | ablate-<module>")
+    ap.add_argument("--arm", required=True, help="label for this agent/configuration, e.g. icode, jiuwenswarm")
     ap.add_argument("--agent-cmd", required=True)
     ap.add_argument("--run-id", default=None)
     ap.add_argument("--backend", choices=["docker", "local"], default="docker")
@@ -236,21 +234,15 @@ def main():
     ap.add_argument("--grade-tiers", default="")
     a = ap.parse_args()
 
-    if a.arm == "full":
-        disabled = []
-    elif a.arm == "baseline":
-        disabled = MODULES[:]
-    elif a.arm.startswith("ablate-") and a.arm[7:] in MODULES:
-        disabled = [a.arm[7:]]
-    else:
-        sys.exit(f"bad --arm {a.arm}; want full | baseline | ablate-{{{','.join(MODULES)}}}")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", a.arm):
+        sys.exit(f"bad --arm {a.arm}: use letters, digits, - _ .")
 
     run_id = a.run_id or f"{a.arm}-{time.strftime('%Y%m%d-%H%M%S')}"
     run_dir = HARNESS / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     log = EventLog(run_dir / "events.jsonl")
     (run_dir / "config.json").write_text(json.dumps(vars(a), indent=2, default=str))
-    log("run.start", arm=a.arm, disabled=disabled, backend=a.backend, hours=a.hours)
+    log("run.start", arm=a.arm, backend=a.backend, hours=a.hours)
 
     backend = (LocalBackend if a.backend == "local" else DockerBackend)(run_dir, a.image)
     backend.start()
@@ -259,7 +251,6 @@ def main():
     env = {
         "GB_RUN_ID": run_id,
         "GB_ARM": a.arm,
-        "GB_DISABLED_MODULES": ",".join(disabled),
         "GB_TRAJECTORY_DIR": "/trajectory" if a.backend == "docker" else str(run_dir / "trajectory"),
     }
     if a.backend == "local":
