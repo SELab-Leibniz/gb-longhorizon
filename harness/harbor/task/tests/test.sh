@@ -26,15 +26,27 @@ cd /work
 git log --format='%H%x09%at%x09%s' > "$OUT/git-log.txt" 2>/dev/null || true
 cp SUBMISSION.md "$OUT/SUBMISSION.md" 2>/dev/null || true
 cp QUESTIONS.md "$OUT/QUESTIONS.md" 2>/dev/null || true
+cp CHANGE_REQUESTS.md "$OUT/CHANGE_REQUESTS.md" 2>/dev/null || true
 
-python3 /tests/grade.py /work --roms /work/roms --golden /tests/golden --frozen-dir /tests/frozen \
+# Grade the last COMMIT, not the working tree: the brief says "whatever is on
+# the branch is what we take", and a run cut off mid-edit must not be graded
+# on a half-written file (nor on a stale binary left in target/).
+G=/tmp/grade-head
+rm -rf "$G" && mkdir -p "$G"
+git -C /work archive HEAD | tar -x -C "$G"
+[ -d /work/vendor ] && ln -sfn /work/vendor "$G/vendor"
+# informational: does the uncommitted working tree build?
+if (cd /work && cargo build --release --offline -q >/dev/null 2>&1); then WT=1; else WT=0; fi
+echo "{\"working_tree_builds\": $WT, \"uncommitted_files\": $(git -C /work status --porcelain | wc -l)}" > "$OUT/working-tree.json"
+
+python3 /tests/grade.py "$G" --roms /work/roms --golden /tests/golden --frozen-dir /tests/frozen \
         -o "$OUT/results.json" > "$OUT/grade-summary.txt" 2> "$OUT/grade-stderr.txt"
 GRADE_RC=$?
 
 # Screenshots for manual review: boot acid2 + every game on the agent's
 # emulator, save agent-vs-reference PNGs and an index.html under
 # /logs/verifier/screenshots (lands in <trial>/verifier/screenshots/).
-python3 /tests/screenshots.py /work --roms /work/roms --golden /tests/golden \
+python3 /tests/screenshots.py "$G" --roms /work/roms --golden /tests/golden \
         --out "$OUT/screenshots" > "$OUT/screenshots.log" 2>&1 || true
 
 python3 - "$OUT/results.json" "$OUT/reward.json" <<'PY'
