@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["gb-core", "gb-cli", "gb-gui"]
+# `cargo build` / `cargo test` at the root build only the headless pieces.
+# The GUI needs a windowing library and is opt-in: `cargo run -p gb-gui`.
+default-members = ["gb-core", "gb-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[profile.release]
+debug = 1          # keep symbols so panics in release report a location
+panic = "unwind"   # the test runner relies on catch_unwind
+lto = "thin"
+
+[profile.test]
+opt-level = 2      # ROM suites are slow at opt-level 0

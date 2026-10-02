@@ -1,0 +1,268 @@
+//! ROM-driven acceptance suite.
+//!
+//! This file is **harness code**: it is complete and must not be weakened.
+//! It discovers test ROMs under `roms/test/` and runs each with the
+//! pass/fail convention of its family:
+//!
+//! * `roms/test/blargg/**/*.gb`  — the ROM prints to the serial port; pass
+//!   when the output contains "Passed", fail on "Failed" or on timeout.
+//!   Blargg's `cpu_instrs` combined ROM takes ~55 s of emulated time, so
+//!   the budget is generous.
+//! * `roms/test/mooneye/**/*.gb` — the ROM executes `LD B,B` when done;
+//!   pass when B,C,D,E,H,L == 3,5,8,13,21,34 at that moment.
+//! * `roms/test/acid2/dmg-acid2.gb` — run a fixed number of frames and
+//!   compare the framebuffer FNV-1a hash with `roms/test/acid2/expected.fnv`.
+//!
+//! A panic inside the emulator (a `todo!()`, an index out of range, …) is
+//! caught and reported as a failure for that ROM, so one broken opcode never
+//! hides the results of the other 100 ROMs.
+//!
+//! Run everything:          `cargo test --release -p gb-core --test rom_suite`
+//! See per-ROM detail:      add `-- --nocapture`
+//! Run a single family:     `-- blargg` / `-- mooneye` / `-- acid2`
+//! Skip a family (e.g. in CI without ROMs): set `GB_SKIP_ROMS=1`.
+
+use gb_core::{Emulator, StepResult};
+use std::fs;
+use std::panic::{self, AssertUnwindSafe};
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+const FRAMES_PER_SECOND: u64 = 60;
+const BLARGG_BUDGET_FRAMES: u64 = 120 * FRAMES_PER_SECOND;
+const MOONEYE_BUDGET_FRAMES: u64 = 20 * FRAMES_PER_SECOND;
+const ACID2_FRAMES: u64 = 2 * FRAMES_PER_SECOND;
+
+fn roms_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("roms")
+        .join("test")
+}
+
+fn collect_roms(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(collect_roms(&path));
+        } else if path.extension().is_some_and(|e| e == "gb") {
+            out.push(path);
+        }
+    }
+    out.sort();
+    out
+}
+
+#[derive(Debug)]
+enum Outcome {
+    Pass,
+    Fail(String),
+    Panic(String),
+}
+
+fn run_guarded(name: &str, f: impl FnOnce() -> Outcome) -> Outcome {
+    match panic::catch_unwind(AssertUnwindSafe(f)) {
+        Ok(outcome) => outcome,
+        Err(payload) => {
+            let msg = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "non-string panic".into());
+            Outcome::Panic(format!("{name}: {msg}"))
+        }
+    }
+}
+
+/// Run a ROM to completion using the Blargg serial protocol.
+fn run_blargg(rom: &[u8]) -> Outcome {
+    let mut emu = match Emulator::load(rom) {
+        Ok(e) => e,
+        Err(e) => return Outcome::Fail(format!("load error: {e}")),
+    };
+    let mut serial = Vec::new();
+    for _ in 0..BLARGG_BUDGET_FRAMES {
+        emu.step_frame();
+        serial.extend(emu.take_serial());
+        let text = String::from_utf8_lossy(&serial);
+        if text.contains("Passed") {
+            return Outcome::Pass;
+        }
+        if text.contains("Failed") {
+            return Outcome::Fail(format!("serial output:\n{}", text.trim()));
+        }
+    }
+    Outcome::Fail(format!(
+        "timed out after {} frames; serial so far:\n{}",
+        BLARGG_BUDGET_FRAMES,
+        String::from_utf8_lossy(&serial).trim()
+    ))
+}
+
+/// Run a ROM to completion using the Mooneye `LD B,B` protocol.
+fn run_mooneye(rom: &[u8]) -> Outcome {
+    let mut emu = match Emulator::load(rom) {
+        Ok(e) => e,
+        Err(e) => return Outcome::Fail(format!("load error: {e}")),
+    };
+    let mut frames = 0u64;
+    let mut cycles_in_frame = 0u32;
+    while frames < MOONEYE_BUDGET_FRAMES {
+        match emu.step_instruction() {
+            StepResult::Ran(c) => {
+                cycles_in_frame += c;
+                if cycles_in_frame >= gb_core::CYCLES_PER_FRAME {
+                    cycles_in_frame -= gb_core::CYCLES_PER_FRAME;
+                    frames += 1;
+                }
+            }
+            StepResult::Breakpoint => {
+                let r = emu.registers();
+                return if r.is_mooneye_pass() {
+                    Outcome::Pass
+                } else {
+                    Outcome::Fail(format!(
+                        "LD B,B reached with B={} C={} D={} E={} H={} L={} (want 3 5 8 13 21 34)",
+                        r.b, r.c, r.d, r.e, r.h, r.l
+                    ))
+                };
+            }
+        }
+    }
+    Outcome::Fail(format!("no LD B,B within {MOONEYE_BUDGET_FRAMES} frames"))
+}
+
+/// Run dmg-acid2 and compare the frame hash.
+fn run_acid2(rom: &[u8], expected: u64) -> Outcome {
+    let mut emu = match Emulator::load(rom) {
+        Ok(e) => e,
+        Err(e) => return Outcome::Fail(format!("load error: {e}")),
+    };
+    for _ in 0..ACID2_FRAMES {
+        emu.step_frame();
+    }
+    let got = gb_core::util::fnv1a64(emu.framebuffer());
+    if got == expected {
+        Outcome::Pass
+    } else {
+        Outcome::Fail(format!("frame hash {got:016x}, expected {expected:016x}"))
+    }
+}
+
+struct Summary {
+    passed: Vec<String>,
+    failed: Vec<(String, String)>,
+}
+
+fn run_family(family: &str, runner: impl Fn(&[u8]) -> Outcome) -> Option<Summary> {
+    if std::env::var_os("GB_SKIP_ROMS").is_some() {
+        eprintln!("[{family}] skipped (GB_SKIP_ROMS set)");
+        return None;
+    }
+    let dir = roms_root().join(family);
+    let roms = collect_roms(&dir);
+    if roms.is_empty() {
+        eprintln!(
+            "[{family}] no ROMs found under {} — run harness/scripts/fetch_assets.sh",
+            dir.display()
+        );
+        return None;
+    }
+
+    let mut summary = Summary {
+        passed: Vec::new(),
+        failed: Vec::new(),
+    };
+    let started = Instant::now();
+    for path in &roms {
+        let rel = path
+            .strip_prefix(&dir)
+            .unwrap_or(path)
+            .display()
+            .to_string();
+        let bytes = fs::read(path).expect("read ROM");
+        let t = Instant::now();
+        let outcome = run_guarded(&rel, || runner(&bytes));
+        let secs = t.elapsed().as_secs_f32();
+        match outcome {
+            Outcome::Pass => {
+                eprintln!("  PASS  {rel}  ({secs:.1}s)");
+                summary.passed.push(rel);
+            }
+            Outcome::Fail(why) => {
+                eprintln!(
+                    "  FAIL  {rel}  ({secs:.1}s)\n        {}",
+                    why.replace('\n', "\n        ")
+                );
+                summary.failed.push((rel, why));
+            }
+            Outcome::Panic(why) => {
+                eprintln!(
+                    "  PANIC {rel}  ({secs:.1}s)\n        {}",
+                    why.replace('\n', "\n        ")
+                );
+                summary.failed.push((rel, format!("panic: {why}")));
+            }
+        }
+    }
+    eprintln!(
+        "[{family}] {}/{} passed in {:.1}s",
+        summary.passed.len(),
+        roms.len(),
+        started.elapsed().as_secs_f32()
+    );
+    Some(summary)
+}
+
+fn assert_all_passed(family: &str, summary: Option<Summary>) {
+    let Some(s) = summary else { return };
+    assert!(
+        s.failed.is_empty(),
+        "[{family}] {} ROM(s) failed:\n{}",
+        s.failed.len(),
+        s.failed
+            .iter()
+            .map(|(name, _)| format!("  - {name}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[test]
+fn blargg() {
+    assert_all_passed("blargg", run_family("blargg", run_blargg));
+}
+
+#[test]
+fn mooneye() {
+    assert_all_passed("mooneye", run_family("mooneye", run_mooneye));
+}
+
+#[test]
+fn acid2() {
+    if std::env::var_os("GB_SKIP_ROMS").is_some() {
+        return;
+    }
+    let dir = roms_root().join("acid2");
+    let rom_path = dir.join("dmg-acid2.gb");
+    let expected_path = dir.join("expected.fnv");
+    if !rom_path.exists() || !expected_path.exists() {
+        eprintln!(
+            "[acid2] missing {} or {} — run harness/scripts/fetch_assets.sh",
+            rom_path.display(),
+            expected_path.display()
+        );
+        return;
+    }
+    let expected = u64::from_str_radix(fs::read_to_string(&expected_path).unwrap().trim(), 16)
+        .expect("expected.fnv holds a 16-hex-digit FNV-1a hash");
+    let rom = fs::read(&rom_path).unwrap();
+    match run_guarded("dmg-acid2", || run_acid2(&rom, expected)) {
+        Outcome::Pass => eprintln!("[acid2] PASS"),
+        Outcome::Fail(why) | Outcome::Panic(why) => panic!("[acid2] FAIL: {why}"),
+    }
+}

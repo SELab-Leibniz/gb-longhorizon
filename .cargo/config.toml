@@ -1,0 +1,18 @@
+# Build settings shared by every crate in the workspace.
+#
+# The agent sandbox runs with NO network. Before the run, the harness
+# vendors the (tiny) dependency set with `harness/scripts/vendor.sh`,
+# which uncomments the [source] block below. gb-core itself has zero
+# dependencies; only gb-gui pulls in a windowing crate.
+
+[build]
+rustflags = ["-D", "warnings"]
+
+# [source.crates-io]
+# replace-with = "vendored-sources"
+#
+# [source.vendored-sources]
+# directory = "vendor"
+
+[net]
+offline = false   # vendor.sh flips this to true for the sandbox image

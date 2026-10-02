@@ -1,0 +1,19 @@
+/target/
+/vendor/
+Cargo.lock.bak
+
+# Fetched assets — large, licensed separately, baked into the sandbox image.
+/docs/pandocs/
+/docs/opcodes.json
+/roms/test/**/*.gb
+/roms/test/mooneye/SOURCE
+/roms/games/*.gb
+/roms/LICENSES.md
+
+# Harness outputs
+/harness/golden/
+results*.json
+similarity-*.zip
+*.pgm
+*.state
+__pycache__/

@@ -1,0 +1,17 @@
+[package]
+name = "gb-gui"
+description = "Minimal windowed front-end for gb-core (demo use only)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "gb-gui"
+path = "src/main.rs"
+
+[dependencies]
+gb-core = { path = "../gb-core" }
+# The only external dependency in the workspace. Vendored for the sandbox
+# by harness/scripts/vendor.sh.
+minifb = "0.28"

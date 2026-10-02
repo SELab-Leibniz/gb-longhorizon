@@ -1,0 +1,15 @@
+[package]
+name = "gb-core"
+description = "Headless Game Boy (DMG) emulator core. No dependencies, no unsafe."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+# Deliberately empty. The core must stay dependency-free; see README.md.
+[dependencies]
+
+[dev-dependencies]

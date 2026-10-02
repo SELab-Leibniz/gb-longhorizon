@@ -1,0 +1,7 @@
+[toolchain]
+# The sandbox image installs exactly one toolchain (1.97.0, see
+# harness/Dockerfile) and this file selects it by channel name so that
+# developer machines with only `stable` installed can also build.
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
