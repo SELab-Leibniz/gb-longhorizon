@@ -47,18 +47,23 @@
 #define W 160
 #define H 144
 
-static uint32_t pixels[W * H];
-static uint8_t shades[W * H];
+static uint32_t pixels[W * H];      /* SameBoy renders into this progressively */
+static uint32_t last_frame[W * H];  /* copied at vblank: the last COMPLETED frame */
+static uint8_t frame_bytes[W * H * 2];
+static size_t frame_len = W * H;    /* bytes hashed per frame: W*H (DMG shades) or 2*W*H (CGB RGB555 LE) */
 static bool frame_ready = false;
+static bool is_cgb = false;
+static bool hit_breakpoint = false;
 
 /* ---- embedded boot stub ----------------------------------------------- */
 /* Sets AF=01B0 BC=0013 DE=00D8 HL=014D SP=FFFE, LCDC=91 BGP=FC OBP0/1=FF,
  * NR52=80 NR50=77 NR51=F3 NR11=80 NR12=F3, then LDH (FF50),A at 0x00FE. */
 static uint8_t boot_stub[256];
 
-static void init_boot_stub(unsigned delay)
+static void init_boot_stub(unsigned delay, bool cgb)
 {
-    static const uint8_t prog[] = {
+    /* DMG: documented DMG post-boot state. */
+    static const uint8_t prog_dmg[] = {
         0x3E, 0x91, 0xE0, 0x40, /* LD A,91 ; LDH (40),A  LCDC */
         0x3E, 0xFC, 0xE0, 0x47, /* BGP */
         0x3E, 0xFF, 0xE0, 0x48, /* OBP0 */
@@ -78,17 +83,38 @@ static void init_boot_stub(unsigned delay)
         0x31, 0xFE, 0xFF,       /* LD SP,FFFE */
         0xC3, 0x00, 0x00,       /* JP 00FE-delay (patched below) */
     };
+    /* CGB: select CGB mode through KEY0 (only writable while the boot ROM is
+     * mapped), then the documented CGB post-boot state:
+     * AF=1180 BC=0000 DE=FF56 HL=000D SP=FFFE, LCDC=91. */
+    static const uint8_t prog_cgb[] = {
+        0x3E, 0x80, 0xE0, 0x4C, /* LD A,80 ; LDH (4C),A  KEY0 = CGB mode */
+        0x3E, 0x91, 0xE0, 0x40, /* LCDC */
+        0x3E, 0x80, 0xE0, 0x26, /* NR52 */
+        0x3E, 0x77, 0xE0, 0x24, /* NR50 */
+        0x3E, 0xF3, 0xE0, 0x25, /* NR51 */
+        0x3E, 0x80, 0xE0, 0x80, /* (FF80) = 80  -> F */
+        0x3E, 0x11, 0xE0, 0x81, /* (FF81) = 11  -> A */
+        0x01, 0x00, 0x00,       /* LD BC,0000 */
+        0x11, 0x56, 0xFF,       /* LD DE,FF56 */
+        0x21, 0x0D, 0x00,       /* LD HL,000D */
+        0x31, 0x80, 0xFF,       /* LD SP,FF80 */
+        0xF1,                   /* POP AF -> AF=1180 */
+        0x31, 0xFE, 0xFF,       /* LD SP,FFFE */
+        0xC3, 0x00, 0x00,       /* JP 00FE-delay (patched below) */
+    };
+    const uint8_t *prog = cgb ? prog_cgb : prog_dmg;
+    size_t len = cgb ? sizeof prog_cgb : sizeof prog_dmg;
     memset(boot_stub, 0x00, sizeof boot_stub); /* 0x00 = NOP */
-    memcpy(boot_stub, prog, sizeof prog);
+    memcpy(boot_stub, prog, len);
     /* --boot-delay N runs N extra NOPs (N M-cycles) before handing over, which
-     * shifts the DIV and PPU phase at PC=0100. make_golden.sh uses this to find
-     * frames that do not depend on sub-frame timing. */
-    unsigned max_delay = 0xFE - (unsigned)sizeof prog;
+     * shifts the DIV and PPU phase at PC=0100. The golden builder uses this to
+     * find frames that do not depend on sub-frame timing. */
+    unsigned max_delay = 0xFE - (unsigned)len;
     if (delay > max_delay) { fprintf(stderr, "--boot-delay max is %u\n", max_delay); exit(1); }
     unsigned target = 0xFE - delay;
-    boot_stub[sizeof prog - 2] = (uint8_t)(target & 0xFF);
-    boot_stub[sizeof prog - 1] = (uint8_t)(target >> 8);
-    boot_stub[0xFE] = 0xE0; /* LDH (FF50),A — A is 0x01 here */
+    boot_stub[len - 2] = (uint8_t)(target & 0xFF);
+    boot_stub[len - 1] = (uint8_t)(target >> 8);
+    boot_stub[0xFE] = 0xE0; /* LDH (FF50),A — A is non-zero (01 / 11) here */
     boot_stub[0xFF] = 0x50;
 }
 
@@ -96,7 +122,12 @@ static void init_boot_stub(unsigned delay)
 
 static uint32_t rgb_encode(GB_gameboy_t *gb, uint8_t r, uint8_t g, uint8_t b)
 {
-    (void)gb; (void)g; (void)b;
+    (void)gb;
+    if (is_cgb) {
+        /* Colour correction is disabled, so SameBoy hands us (c5 << 3) | (c5 >> 2). */
+        return (uint32_t)(r >> 3) | ((uint32_t)(g >> 3) << 5) | ((uint32_t)(b >> 3) << 10);
+    }
+    (void)g; (void)b;
     /* GREY palette: FF,AA,55,00 → shade 0..3 (0 = lightest). */
     return 3u - (uint32_t)r * 4u / 256u;
 }
@@ -104,7 +135,14 @@ static uint32_t rgb_encode(GB_gameboy_t *gb, uint8_t r, uint8_t g, uint8_t b)
 static void on_vblank(GB_gameboy_t *gb, GB_vblank_type_t type)
 {
     (void)gb; (void)type;
+    memcpy(last_frame, pixels, sizeof pixels);
     frame_ready = true;
+}
+
+static void on_execute(GB_gameboy_t *gb, uint16_t address, uint8_t opcode)
+{
+    (void)address;
+    if (opcode == 0x40 && gb->boot_rom_finished) hit_breakpoint = true;  /* LD B,B */
 }
 
 static void on_log(GB_gameboy_t *gb, const char *string, GB_log_attributes_t attributes)
@@ -124,13 +162,40 @@ static uint64_t fnv1a64(const uint8_t *p, size_t n)
     return h;
 }
 
-static void write_pgm(const char *path)
+static void capture_frame(void)
+{
+    if (is_cgb) {
+        for (size_t i = 0; i < W * H; i++) {
+            frame_bytes[2 * i] = (uint8_t)(last_frame[i] & 0xFF);
+            frame_bytes[2 * i + 1] = (uint8_t)(last_frame[i] >> 8);
+        }
+        frame_len = 2 * W * H;
+    } else {
+        for (size_t i = 0; i < W * H; i++) frame_bytes[i] = (uint8_t)(last_frame[i] & 3);
+        frame_len = W * H;
+    }
+}
+
+/* DMG: binary PGM (P5), 0 = black … 255 = white. CGB: binary PPM (P6), 8-bit
+ * channels expanded as (c5 << 3) | (c5 >> 2). Same formats gb-cli writes. */
+static void write_image(const char *path)
 {
     FILE *f = fopen(path, "wb");
     if (!f) { perror(path); exit(1); }
-    fprintf(f, "P5\n%d %d\n255\n", W, H);
-    static const uint8_t grey[4] = {255, 170, 85, 0};
-    for (size_t i = 0; i < W * H; i++) fputc(grey[shades[i] & 3], f);
+    if (is_cgb) {
+        fprintf(f, "P6\n%d %d\n255\n", W, H);
+        for (size_t i = 0; i < W * H; i++) {
+            uint32_t c = last_frame[i];
+            for (int k = 0; k < 3; k++) {
+                uint8_t v = (uint8_t)((c >> (5 * k)) & 31);
+                fputc((v << 3) | (v >> 2), f);
+            }
+        }
+    } else {
+        fprintf(f, "P5\n%d %d\n255\n", W, H);
+        static const uint8_t grey[4] = {255, 170, 85, 0};
+        for (size_t i = 0; i < W * H; i++) fputc(grey[last_frame[i] & 3], f);
+    }
     fclose(f);
 }
 
@@ -196,8 +261,8 @@ static void apply_mask(GB_gameboy_t *gb, uint8_t mask)
 static void run_one_frame(GB_gameboy_t *gb)
 {
     frame_ready = false;
-    while (!frame_ready) GB_run_frame(gb);
-    for (size_t i = 0; i < W * H; i++) shades[i] = (uint8_t)(pixels[i] & 3);
+    while (!frame_ready && !hit_breakpoint) GB_run_frame(gb);
+    capture_frame();
 }
 
 /* ---- main ------------------------------------------------------------- */
@@ -215,10 +280,17 @@ int main(int argc, char **argv)
     const char *boot_path = NULL;
     uint64_t dump_every = 60;
     unsigned boot_delay = 0;
+    bool until_breakpoint = false;
     for (int i = 5; i < argc; i++) {
         if (!strcmp(argv[i], "--boot") && i + 1 < argc) boot_path = argv[++i];
         else if (!strcmp(argv[i], "--dump-every") && i + 1 < argc) dump_every = strtoull(argv[++i], NULL, 10);
         else if (!strcmp(argv[i], "--boot-delay") && i + 1 < argc) boot_delay = (unsigned)strtoul(argv[++i], NULL, 10);
+        else if (!strcmp(argv[i], "--model") && i + 1 < argc) {
+            const char *m = argv[++i];
+            if (!strcmp(m, "cgb")) is_cgb = true;
+            else if (strcmp(m, "dmg")) { fprintf(stderr, "--model must be dmg or cgb\n"); return 1; }
+        }
+        else if (!strcmp(argv[i], "--until-breakpoint")) until_breakpoint = true;
         else { fprintf(stderr, "unknown arg %s\n", argv[i]); return 1; }
     }
 
@@ -232,17 +304,19 @@ int main(int argc, char **argv)
      * (vec![0; ..]) and making goldens identical across runs and platforms. */
     GB_random_set_enabled(false);
     GB_gameboy_t gb;
-    GB_init(&gb, GB_MODEL_DMG_B);
+    /* DMG-B for DMG, CGB-C for CGB (the revision the Mealybug CGB expectations target). */
+    GB_init(&gb, is_cgb ? GB_MODEL_CGB_C : GB_MODEL_DMG_B);
     if (boot_path) {
         if (GB_load_boot_rom(&gb, boot_path)) { fprintf(stderr, "cannot load boot ROM %s\n", boot_path); return 1; }
     } else {
-        init_boot_stub(boot_delay);
+        init_boot_stub(boot_delay, is_cgb);
         GB_load_boot_rom_from_buffer(&gb, boot_stub, sizeof boot_stub);
     }
     GB_set_palette(&gb, &GB_PALETTE_GREY);
     GB_set_rgb_encode_callback(&gb, rgb_encode);
     GB_set_pixels_output(&gb, pixels);
     GB_set_vblank_callback(&gb, on_vblank);
+    GB_set_execution_callback(&gb, on_execute);
     GB_set_log_callback(&gb, on_log);
     GB_set_color_correction_mode(&gb, GB_COLOR_CORRECTION_DISABLED);
     GB_set_emulate_joypad_bouncing(&gb, false);
@@ -269,11 +343,26 @@ int main(int argc, char **argv)
         while (si < script_n && script[si].frame == frame) apply_mask(&gb, script[si++].mask);
         run_one_frame(&gb);
         uint64_t n = frame + 1; /* 1-based, like gb-cli's --dump-every numbering */
-        fprintf(hashes, "%llu %016llx\n", (unsigned long long)n, (unsigned long long)fnv1a64(shades, sizeof shades));
+        fprintf(hashes, "%llu %016llx\n", (unsigned long long)n, (unsigned long long)fnv1a64(frame_bytes, frame_len));
         if (dump_every && n % dump_every == 0) {
-            snprintf(path, sizeof path, "%s/frame_%06llu.pgm", out_dir, (unsigned long long)n);
-            write_pgm(path);
+            snprintf(path, sizeof path, "%s/frame_%06llu.%s", out_dir, (unsigned long long)n, is_cgb ? "ppm" : "pgm");
+            write_image(path);
         }
+        if (until_breakpoint && hit_breakpoint) {
+            /* The screenshot a test ROM means at LD B,B is the last completed frame. */
+            snprintf(path, sizeof path, "%s/breakpoint.%s", out_dir, is_cgb ? "ppm" : "pgm");
+            write_image(path);
+            printf("breakpoint %llu %016llx\n", (unsigned long long)n, (unsigned long long)fnv1a64(frame_bytes, frame_len));
+            fclose(hashes);
+            free(script);
+            return 0;
+        }
+    }
+    if (until_breakpoint) {
+        printf("no-breakpoint\n");
+        fclose(hashes);
+        free(script);
+        return 3;
     }
     fclose(hashes);
     fprintf(stderr, "ok: %llu frames (%u boot frames skipped) -> %s\n",
