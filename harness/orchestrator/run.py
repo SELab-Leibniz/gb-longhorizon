@@ -228,7 +228,7 @@ def main():
     ap.add_argument("--restart-delay-sec", type=float, default=30.0)
     ap.add_argument("--max-restarts", type=int, default=50)
     ap.add_argument("--golden", type=Path, default=HARNESS / "golden")
-    ap.add_argument("--po-model", default=os.environ.get("GB_PO_MODEL", "deepseek-v4.1-flash"))
+    ap.add_argument("--po-model", default=os.environ.get("GB_PO_MODEL", "deepseek-flash"))
     ap.add_argument("--po-poll-sec", type=float, default=20.0)
     ap.add_argument("--no-po", action="store_true")
     ap.add_argument("--grade-tiers", default="")

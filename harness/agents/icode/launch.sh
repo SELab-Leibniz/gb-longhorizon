@@ -16,7 +16,7 @@
 #   DEEPSEEK_API_KEY   (unless ICODE_PROVIDER=mock)
 # Optional:
 #   ICODE_PROVIDER     deepseek-openai (default) | openai | mock
-#   ICODE_MODEL        deepseek-v4.1-flash (default)
+#   ICODE_MODEL        deepseek-flash (default)
 #   ICODE_BASE_URL     override endpoint
 #   ICODE_CONTINUE_SLEEP_SEC   pause between invocations after a DONE (default 600)
 set -uo pipefail
@@ -24,7 +24,7 @@ set -uo pipefail
 : "${ICODE_DIR:?set ICODE_DIR to the iCode checkout}"
 : "${GB_TRAJECTORY_DIR:=./.trajectory}"
 ICODE_PROVIDER="${ICODE_PROVIDER:-deepseek-openai}"
-ICODE_MODEL="${ICODE_MODEL:-deepseek-v4.1-flash}"
+ICODE_MODEL="${ICODE_MODEL:-deepseek-flash}"
 ICODE="$ICODE_DIR/.venv/bin/icode"
 PY="$ICODE_DIR/.venv/bin/python"
 WORK="$PWD"

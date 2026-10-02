@@ -2,7 +2,7 @@
 """Generate the iCode agent + model profiles for a black-box run.
 
     make_profile.py --home DIR [--provider deepseek-openai|openai|mock]
-                    [--model deepseek-v4.1-flash] [--base-url URL]
+                    [--model deepseek-flash] [--base-url URL]
 
 Writes under DIR/.chrys/:
   agents/LongRun.yaml   the built-in Code profile, unchanged except that the
@@ -41,7 +41,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--home", required=True, type=Path)
     ap.add_argument("--provider", default="deepseek-openai")
-    ap.add_argument("--model", default="deepseek-v4.1-flash")
+    ap.add_argument("--model", default="deepseek-flash")
     ap.add_argument("--base-url", default="")
     ap.add_argument("--max-context", type=int, default=128000)
     ap.add_argument("--max-output", type=int, default=8192)

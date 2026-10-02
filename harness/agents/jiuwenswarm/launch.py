@@ -18,7 +18,7 @@ Required env:
   API_KEY           model API key
 Optional:
   API_BASE          default https://api.deepseek.com
-  MODEL_NAME        default deepseek-v4.1-flash
+  MODEL_NAME        default deepseek-flash
   MODEL_PROVIDER    default OpenAI        ENDPOINT_PROFILE default deepseek
   JW_CONTINUE_SLEEP_SEC   pause after a run that reports completion (default 600)
 
@@ -97,7 +97,7 @@ def setup():
     (cfg_dir / ".env").write_text(
         f'API_BASE="{os.environ.get("API_BASE", "https://api.deepseek.com")}"\n'
         f'API_KEY="{os.environ["API_KEY"]}"\n'
-        f'MODEL_NAME="{os.environ.get("MODEL_NAME", "deepseek-v4.1-flash")}"\n'
+        f'MODEL_NAME="{os.environ.get("MODEL_NAME", "deepseek-flash")}"\n'
         f'MODEL_PROVIDER={os.environ.get("MODEL_PROVIDER", "OpenAI")}\n'
         f'ENDPOINT_PROFILE={os.environ.get("ENDPOINT_PROFILE", "deepseek")}\n'
     )

@@ -45,7 +45,7 @@ services:
     environment:
       GB_PO_API_KEY: ${GB_PO_API_KEY}
       GB_PO_BASE_URL: ${GB_PO_BASE_URL:-https://api.deepseek.com/v1}
-      GB_PO_MODEL: ${GB_PO_MODEL:-deepseek-v4.1-flash}
+      GB_PO_MODEL: ${GB_PO_MODEL:-deepseek-flash}
       GB_SNAPSHOT_HOURS: ${GB_SNAPSHOT_HOURS:-2}
 
 networks:

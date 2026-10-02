@@ -20,6 +20,10 @@ ARG JW_REPO=https://github.com/openJiuwen-ai/jiuwenswarm
 ARG JW_COMMIT=f0a69728c96b5961d993449f1a901cbd2f4dac5b
 
 ENV DEBIAN_FRONTEND=noninteractive
+# The repo's rust-toolchain.toml says "stable" (so dev machines build); inside
+# the sandbox pin the toolchain the image ships, so rustup never tries to
+# download a newer stable and every run uses the same compiler.
+ENV RUSTUP_TOOLCHAIN=1.97.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git ca-certificates curl unzip cmake build-essential python3 python3-yaml ripgrep procps \
     && rm -rf /var/lib/apt/lists/* \

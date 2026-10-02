@@ -1,8 +1,8 @@
 """Harbor agents for the gb-longhorizon task.
 
-    harbor run -p harness/harbor/task --agent-import-path gb_agents:ICodeAgent -m deepseek/deepseek-v4.1-flash \
+    harbor run -p harness/harbor/task --agent-import-path gb_agents:ICodeAgent -m deepseek/deepseek-flash \
         --ae DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY} -y
-    harbor run -p harness/harbor/task --agent-import-path gb_agents:JiuwenSwarmAgent -m deepseek/deepseek-v4.1-flash \
+    harbor run -p harness/harbor/task --agent-import-path gb_agents:JiuwenSwarmAgent -m deepseek/deepseek-flash \
         --ae API_KEY=${DEEPSEEK_API_KEY} -y
 
 Both agents are pre-installed in the task image (environment/Dockerfile),
@@ -42,7 +42,7 @@ class _GbAgent(BaseInstalledAgent):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self.run_seconds = int(run_seconds)
         self.chaos_after_sec = int(chaos_after_sec)
-        self.model = model or self._parsed_model_name or "deepseek-v4.1-flash"
+        self.model = model or self._parsed_model_name or "deepseek-flash"
 
     def version(self) -> str | None:
         return None

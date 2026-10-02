@@ -77,7 +77,7 @@ def main():
     import po_agent
     po_agent.HARNESS = Path("/po")  # HIDDEN_SPEC.md / PRODUCT_OWNER.md live here
     po = po_agent.ProductOwner(FileBackend(WORK), ART, log,
-                               model=os.environ.get("GB_PO_MODEL", "deepseek-v4.1-flash"),
+                               model=os.environ.get("GB_PO_MODEL", "deepseek-flash"),
                                poll_sec=float(os.environ.get("GB_PO_POLL_SEC", "20")))
     threading.Thread(target=snapshots, args=(log, float(os.environ.get("GB_SNAPSHOT_HOURS", "2"))), daemon=True).start()
     po.run(threading.Event())  # never set: runs until the container is stopped
