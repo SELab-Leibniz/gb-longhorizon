@@ -27,9 +27,14 @@ harness/
 ```sh
 harness/scripts/fetch_assets.sh          # needs network; populates docs/ roms/
 harness/scripts/vendor.sh                # cargo vendor + offline config
-harness/scripts/make_golden.sh           # needs SameBoy on PATH
+harness/ref/build.sh                     # SameBoy reference runner
+harness/scripts/make_golden.sh           # goldens (already committed; re-run only if ROMs/scripts change)
 docker build -f harness/Dockerfile -t gb-longhorizon-sandbox .
 ```
+
+`harness/golden/` is committed: per-frame reference hashes and the input
+script for each of the ten games in `roms/LICENSES.md`, plus the SameBoy
+commit they came from.
 
 The Dockerfile copies the repo, deletes `harness/` and `.git/`, re-inits
 git with a single "initial scaffold" commit, and sets `--network none` at

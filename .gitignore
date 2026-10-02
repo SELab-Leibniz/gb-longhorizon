@@ -8,10 +8,9 @@ Cargo.lock.bak
 /roms/test/**/*.gb
 /roms/test/mooneye/SOURCE
 /roms/games/*.gb
-/roms/LICENSES.md
 
 # Harness outputs
-/harness/golden/
+# harness/golden/ is committed (small text files); ROMs are not.
 results*.json
 similarity-*.zip
 *.pgm

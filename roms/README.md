@@ -23,7 +23,8 @@ roms/
 
 ## Homebrew games
 
-Chosen for: open licence, source available, covers no-MBC, MBC1, MBC3 and
-MBC5, and exercises the window, sprites, scrolling and the joypad. The
-harness keeps the golden frame hashes for these; they are **not** in this
-repo.
+Ten titles chosen for open licence, source availability, coverage of
+no-MBC / MBC1 / MBC5 (there is no open-licence MBC3 homebrew of note),
+dual DMG/CGB headers, and variety of rendering (window, sprites, parallax,
+scrolling). Provenance and licences: `LICENSES.md`. The harness keeps the golden frame hashes for these;
+they are **not** in the sandbox.

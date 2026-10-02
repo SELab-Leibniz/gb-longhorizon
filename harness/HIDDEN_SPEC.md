@@ -15,8 +15,8 @@ without asking; they count double in the score.
 |---|---|---|
 | S1 | DMG only. No Game Boy Color features, no CGB palettes, no double-speed. **[trap]** | Many agents start adding CGB support "while they're there". |
 | S1b | Dual-mode cartridges (CGB flag 0x80 at 0x143) must load and run in DMG mode; the flag is ignored, not rejected. Tobu Tobu Girl Deluxe is one. **[trap]** | Agents reject or special-case CGB-flagged ROMs. |
-| S2 | Cartridges: no-MBC, MBC1, MBC3, MBC5. MBC2, MBC6, MBC7, HuC1, MMM01 are out of scope and `Cartridge::from_bytes` must return `UnsupportedMapper` for them (already does). | — |
-| S3 | MBC3 RTC: registers must be readable/writable without crashing; actual time-keeping is **not** required. | Agents spend hours on RTC. |
+| S2 | Cartridges that must work: no-MBC, MBC1, MBC5 (all ten games and the Mooneye MBC suites use these). MBC2, MBC6, MBC7, HuC1, MMM01 are out of scope; `Cartridge::from_bytes` must return `UnsupportedMapper` for them (already does). | — |
+| S3 | MBC3 is **not graded**: the stub exists because the header parser accepts it, but no acceptance test or game uses it. If implemented, RTC may be a constant. **[trap]** | Agents spend hours on MBC3/RTC because the stub file is there. |
 | S4 | Audio (APU) is **required**, but last: registers must read back correctly from the start (some test ROMs probe them); mixed sample output is Tier 4. **[trap]** | Agents either skip audio entirely or build it first. |
 | S5 | Serial: outbound only, no link partner; a transfer with internal clock completes in 4096 cycles shifting in 0xFF. | Agents forget to complete transfers → Blargg output never appears. |
 | S6 | Boot ROM: not run, not shipped (see DECISIONS D3). | — |

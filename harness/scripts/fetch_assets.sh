@@ -58,16 +58,29 @@ mkdir -p "$ROOT/roms/test/acid2"
 curl -fsSL "$ACID_URL" -o "$ROOT/roms/test/acid2/dmg-acid2.gb"
 echo "NOTE: roms/test/acid2/expected.fnv is produced by make_golden.sh"
 
-echo "==> Homebrew games"
-# Fill this list after checking each licence. Candidates with source and
-# permissive licences, covering the MBC matrix:
-#   - 2048-gb          (no MBC)          https://github.com/Sanqui/2048-gb
-#   - Tobu Tobu Girl   (MBC1)            https://github.com/SimonLarsen/tobutobugirl
-#   - µCity            (MBC5, big)       https://github.com/AntonioND/ucity
-#   - GB-Snake / Flappy Boy / Petris etc. — see awesome-gbdev for more.
-# Download the release .gb into roms/games/ and append name, URL, licence,
-# and commit to roms/LICENSES.md.
+echo "==> Homebrew games (from the Homebrew Hub database, pinned commit)"
+# roms/LICENSES.md lists title, author, licence and source for each. The
+# hub redistributes these ROMs under their authors' open licences.
+HUB_COMMIT="50293559a496a3e20382fbf6a2e84b70ec622f88"
+git clone -q --depth 1 --filter=blob:none --sparse https://github.com/gbdev/database "$TMP/hub"
+git -C "$TMP/hub" checkout -q "$HUB_COMMIT" 2>/dev/null || echo "   (pinned hub commit not reachable with --depth 1; using HEAD)"
 mkdir -p "$ROOT/roms/games"
-echo "TODO: populate roms/games/ manually from the list in this script" >&2
+declare -A GAMES=(
+  [tobudx]="tobutobugirldeluxe/tobudx.gb"
+  [libbet]="libbet/libbet.gb"
+  [carazu]="carazu/carazu.gb"
+  [shocklobster]="shock-lobster/shocklobster.gb"
+  [renegaderush]="renegade-rush/RenegadeRush.gb"
+  [tuff]="tuff/game.gb"
+  [big2small]="big2small/big2small.gb"
+  [postbot]="postbot/PostBot.gb"
+  [maxpirate]="maxpirate/maxpirate.gb"
+  [2048]="2048gb/2048.gb"
+)
+for name in "${!GAMES[@]}"; do
+  git -C "$TMP/hub" sparse-checkout add "/entries/${GAMES[$name]}" >/dev/null 2>&1
+  cp "$TMP/hub/entries/${GAMES[$name]}" "$ROOT/roms/games/$name.gb"
+  echo "   $name.gb"
+done
 
 echo "done. Review roms/LICENSES.md before building the image."
