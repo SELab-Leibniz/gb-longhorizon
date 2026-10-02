@@ -44,7 +44,7 @@ def main():
     ap.add_argument("--model", default="deepseek-flash")
     ap.add_argument("--base-url", default="")
     ap.add_argument("--max-context", type=int, default=128000)
-    ap.add_argument("--max-output", type=int, default=8192)
+    ap.add_argument("--max-output", type=int, default=32000)  # reasoning models need room to think; 8192 starved deepseek-flash
     a = ap.parse_args()
 
     chrys = a.home / ".chrys"

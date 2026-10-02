@@ -29,6 +29,7 @@ with the snapshots.
 import asyncio
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -170,6 +171,11 @@ async def answer_interaction(record):
     return answers
 
 
+# Session id of the run in progress, learned from the event stream as soon as
+# the runtime announces it, so a crash or chaos kill can still be resumed.
+CURRENT = {"session": ""}
+
+
 async def one_run(session_id, prompt, events_path):
     client = Client([str(VENV / "jiuwenswarm-process"), "--run-jsonl"], cwd=str(WORK), env=env_for_child())
     req = {
@@ -182,26 +188,69 @@ async def one_run(session_id, prompt, events_path):
         req["session_id"] = session_id
     with events_path.open("a") as fh:
         async def on_event(rec):
+            sid = rec.get("session_id")
+            if sid and sid != CURRENT["session"]:
+                CURRENT["session"] = sid
+                STATE.write_text(sid)
             fh.write(json.dumps(rec) + "\n")
             fh.flush()
         result = await client.run(req, on_event=on_event, on_interaction=answer_interaction)
     return result
 
 
+# ---- process control --------------------------------------------------------
+# Never match agent processes by name (they may rename themselves): act on the
+# process tree below this adapter instead.
+def descendants(root):
+    children = {}
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        try:
+            with open(f"/proc/{d}/stat") as f:
+                ppid = int(f.read().rsplit(")", 1)[1].split()[1])
+            children.setdefault(ppid, []).append(int(d))
+        except (OSError, ValueError, IndexError):
+            continue
+    out, stack = [], [root]
+    while stack:
+        for c in children.get(stack.pop(), []):
+            out.append(c)
+            stack.append(c)
+    return out
+
+
+def kill_descendants():
+    pids = descendants(os.getpid())
+    for pid in reversed(pids):          # leaves first
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    return pids
+
+
+def on_term(signum, frame):
+    log("adapter.stop", signal=signum)
+    kill_descendants()
+    os._exit(143)
+
+
 def chaos_watchdog():
-    """Once, GB_CHAOS_AFTER_SEC after start, SIGKILL the running agent process."""
+    """Once, GB_CHAOS_AFTER_SEC after start, SIGKILL the running agent (its whole tree)."""
     after = int(os.environ.get("GB_CHAOS_AFTER_SEC", "0") or 0)
     marker = TRAJ / "chaos_done"
     if after <= 0 or marker.exists():
         return
     time.sleep(after)
     marker.touch()
-    log("chaos.kill")
-    subprocess.run(["pkill", "-KILL", "-f", "jiuwenswarm-process"], check=False)
+    log("chaos.kill", pids=kill_descendants())
 
 
 def main():
     TRAJ.mkdir(parents=True, exist_ok=True)
+    signal.signal(signal.SIGTERM, on_term)
+    signal.signal(signal.SIGINT, on_term)
     setup()
     import threading
     threading.Thread(target=chaos_watchdog, daemon=True).start()
@@ -215,11 +264,13 @@ def main():
         else:
             prompt = RECHECK_PROMPT if last_done else CONTINUE_PROMPT
         events_path = TRAJ / f"jw_events_{int(time.time())}.jsonl"
+        CURRENT["session"] = session
         try:
             result = asyncio.run(one_run(session, prompt, events_path))
-        except Exception as e:  # transport/protocol errors
+        except Exception as e:  # transport/protocol errors, or the child was killed
             result = {"status": "adapter_error", "exit_code": -1, "error": repr(e)[:500]}
-        sid = result.get("session_id") or session
+        sid = result.get("session_id") or CURRENT["session"] or session
+        recovered = bool(sid) and not result.get("session_id")
         if sid:
             session = sid
             STATE.write_text(session)
@@ -227,8 +278,8 @@ def main():
         last_done = "DONE" in output or (WORK / "SUBMISSION.md").exists()
         ok = result.get("exit_code") == 0
         log("invocation.end", status=result.get("status"), exit_code=result.get("exit_code"),
-            session=session, done=last_done, usage=result.get("usage"), error=result.get("error"),
-            events=events_path.name)
+            session=session, session_recovered=recovered, done=last_done, usage=result.get("usage"),
+            error=result.get("error"), events=events_path.name)
         if not ok:
             fail_streak += 1
             if fail_streak >= 3:
@@ -238,7 +289,7 @@ def main():
                 fail_streak = 0
                 time.sleep(30)
             else:
-                time.sleep(30 * fail_streak)
+                time.sleep(10 * fail_streak)
             continue
         fail_streak = 0
         time.sleep(int(os.environ.get("JW_CONTINUE_SLEEP_SEC", "600")) if last_done else 5)

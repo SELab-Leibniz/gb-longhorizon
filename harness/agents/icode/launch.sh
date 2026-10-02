@@ -25,7 +25,7 @@ set -uo pipefail
 : "${GB_TRAJECTORY_DIR:=./.trajectory}"
 ICODE_PROVIDER="${ICODE_PROVIDER:-deepseek-openai}"
 ICODE_MODEL="${ICODE_MODEL:-deepseek-flash}"
-ICODE="$ICODE_DIR/.venv/bin/icode"
+ICODE="${ICODE_BIN:-$ICODE_DIR/.venv/bin/icode}"   # ICODE_BIN: test hook
 PY="$ICODE_DIR/.venv/bin/python"
 WORK="$PWD"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -49,11 +49,53 @@ log() { printf '{"t":%s,"event":"%s"%s}\n' "$(date +%s)" "$1" "${2:-}" >> "$LOG"
 CONTINUE_PROMPT='Continue working on the task in TASK.md. First check QUESTIONS.md for new answers from the product owner and git log / test results for the current state. Keep going until everything is complete and verified; say DONE only then.'
 RECHECK_PROMPT='Re-verify the project against TASK.md: run the full test suite, fix any regressions, and look for remaining gaps. If everything passes and nothing is left, say DONE.'
 
-# Chaos test: once, GB_CHAOS_AFTER_SEC after start, kill whatever icode
-# invocation is running (SIGKILL, no cleanup). The loop below then resumes
-# the session cold — recovery time is visible in the adapter log.
+# ---- process control ---------------------------------------------------
+# iCode renames its process (it shows up as "chrys"), so never match by name:
+# track the PID of each invocation and act on its whole process tree.
+PIDFILE="$GB_TRAJECTORY_DIR/icode.pid"
+kill_tree() {   # SIGKILL a process and all its descendants, leaves first
+  local p="$1" c
+  [[ -z "$p" ]] && return 0
+  for c in $(pgrep -P "$p" 2>/dev/null); do kill_tree "$c"; done
+  kill -KILL "$p" 2>/dev/null || true
+}
+CHAOS_PID=""
+on_term() {     # the run's time budget expired (timeout -s TERM) or Harbor stops us
+  log "adapter.stop" ",\"signal\":\"TERM\""
+  kill_tree "$(cat "$PIDFILE" 2>/dev/null)"
+  [[ -n "$CHAOS_PID" ]] && kill_tree "$CHAOS_PID"
+  exit 143
+}
+nap() { sleep "$1" & wait $!; }   # interruptible sleep, so TERM is handled at once
+trap on_term TERM INT
+
+# Recover the most recent session id from iCode's own index — needed when an
+# invocation dies before printing its JSON result (crash, chaos kill).
+latest_session() {
+  "$PY" - "$CHRYS_SESSION_ROOT_DIR/sessions/session_mru.json" <<'PYEOF'
+import json, sys
+try:
+    s = json.load(open(sys.argv[1])).get("sessions") or []
+    s.sort(key=lambda e: e.get("last_updated_at", ""), reverse=True)
+    print(s[0]["session_id"] if s else "")
+except Exception:
+    print("")
+PYEOF
+}
+
+# Chaos test: once, GB_CHAOS_AFTER_SEC after start, SIGKILL whatever iCode
+# invocation is running (no cleanup, like a crash). The loop below then
+# resumes the same session cold; recovery is visible in the adapter log.
 if [[ "${GB_CHAOS_AFTER_SEC:-0}" -gt 0 && ! -f "$GB_TRAJECTORY_DIR/chaos_done" ]]; then
-  ( sleep "$GB_CHAOS_AFTER_SEC"; touch "$GB_TRAJECTORY_DIR/chaos_done"; log "chaos.kill"; pkill -KILL -f "icode run" ) &
+  (
+    trap - TERM INT
+    sleep "$GB_CHAOS_AFTER_SEC"
+    touch "$GB_TRAJECTORY_DIR/chaos_done"
+    victim="$(cat "$PIDFILE" 2>/dev/null)"
+    log "chaos.kill" ",\"pid\":\"$victim\""
+    kill_tree "$victim"
+  ) &
+  CHAOS_PID=$!
 fi
 
 session="$(cat "$STATE" 2>/dev/null || true)"
@@ -63,38 +105,45 @@ log "adapter.start" ",\"arm\":\"${GB_ARM:-}\",\"resume_session\":\"$session\""
 while true; do
   out="$GB_TRAJECTORY_DIR/run_$(date +%s).json"
   if [[ -z "$session" ]]; then
-    "$ICODE" run --task TASK.md -a LongRun -m gbmodel00001 -C "$WORK" --json > "$out" 2>> "$GB_TRAJECTORY_DIR/icode_stderr.log"
+    "$ICODE" run --task TASK.md -a LongRun -m gbmodel00001 -C "$WORK" --json > "$out" 2>> "$GB_TRAJECTORY_DIR/icode_stderr.log" &
   else
     prompt="$CONTINUE_PROMPT"
     [[ "${last_done:-0}" == 1 ]] && prompt="$RECHECK_PROMPT"
-    "$ICODE" run "$prompt" -a LongRun -m gbmodel00001 -s "$session" -C "$WORK" --json > "$out" 2>> "$GB_TRAJECTORY_DIR/icode_stderr.log"
+    "$ICODE" run "$prompt" -a LongRun -m gbmodel00001 -s "$session" -C "$WORK" --json > "$out" 2>> "$GB_TRAJECTORY_DIR/icode_stderr.log" &
   fi
+  echo $! > "$PIDFILE"
+  wait $!          # interruptible, so the TERM trap fires immediately
   rc=$?
+  rm -f "$PIDFILE"
   new_session="$("$PY" -c 'import json,sys
 try: print(json.load(open(sys.argv[1])).get("session_id",""))
 except Exception: print("")' "$out")"
   result="$("$PY" -c 'import json,sys
 try: print(json.load(open(sys.argv[1])).get("result",""))
 except Exception: print("")' "$out")"
+  recovered=0
+  if [[ -z "$new_session" ]]; then
+    new_session="$(latest_session)"; [[ -n "$new_session" ]] && recovered=1
+  fi
   [[ -n "$new_session" ]] && { session="$new_session"; echo "$session" > "$STATE"; }
   last_done=0; { grep -q "DONE" <<<"$result" || [[ -f "$WORK/SUBMISSION.md" ]]; } && last_done=1
-  log "invocation.end" ",\"rc\":$rc,\"session\":\"$session\",\"done\":$last_done,\"out\":\"$(basename "$out")\""
+  log "invocation.end" ",\"rc\":$rc,\"session\":\"$session\",\"session_recovered\":$recovered,\"done\":$last_done,\"out\":\"$(basename "$out")\""
 
   if [[ $rc -ne 0 ]]; then
     fail_streak=$((fail_streak+1))
     if [[ $fail_streak -ge 3 ]]; then
       log "session.abandoned" ",\"after_failures\":$fail_streak,\"session\":\"$session\""
       session=""; rm -f "$STATE"; fail_streak=0
-      sleep 30
+      nap 30
     else
-      sleep $((30 * fail_streak))
+      nap $((10 * fail_streak))
     fi
     continue
   fi
   fail_streak=0
   if [[ $last_done == 1 ]]; then
-    sleep "${ICODE_CONTINUE_SLEEP_SEC:-600}"
+    nap "${ICODE_CONTINUE_SLEEP_SEC:-600}"
   else
-    sleep 5
+    nap 5
   fi
 done

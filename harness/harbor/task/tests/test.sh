@@ -8,11 +8,18 @@ set -uo pipefail
 OUT=/logs/verifier
 mkdir -p "$OUT"
 
-# The agent wrappers exit on their own before the Harbor timeout, but make
-# sure nothing is still editing the repo while we grade.
-pkill -KILL -f "gb-agents/" 2>/dev/null || true
-pkill -KILL -f "icode run" 2>/dev/null || true
-pkill -KILL -f "jiuwenswarm-process" 2>/dev/null || true
+# Stop the agent before grading. The adapters exit on their own before the
+# Harbor timeout and clean up their process trees on TERM; anything left over
+# (e.g. a renamed agent process orphaned by a hard kill) is killed here, by
+# process tree and by known names — never trust names alone, iCode renames
+# itself to "chrys".
+kill_tree() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$c"; done; kill -KILL "$1" 2>/dev/null || true; }
+for p in $(pgrep -f "gb-agents/" 2>/dev/null); do kill -TERM "$p" 2>/dev/null || true; done
+sleep 5
+for p in $(pgrep -f "gb-agents/" 2>/dev/null); do kill_tree "$p"; done
+for name in chrys icode jiuwenswarm-process; do pkill -KILL -x "$name" 2>/dev/null || true; done
+pkill -KILL -f "/opt/icode/" 2>/dev/null || true
+pkill -KILL -f "/opt/jiuwenswarm/" 2>/dev/null || true
 sleep 2
 
 cd /work
