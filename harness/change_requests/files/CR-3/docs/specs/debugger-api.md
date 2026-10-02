@@ -32,6 +32,7 @@ LY (`$FF44`) always read `$90`, exactly as in `gb-trace --doctor`.
 | `POST /load` | `{"path": "/abs/rom.gb", "model": "dmg"\|"cgb"\|"auto"}` (`model` optional, default `"dmg"`) | `{"ok": true, "title": "...", "model": "dmg"\|"cgb"}` |
 | `POST /reset` | | `{"ok": true}` — reload the same ROM in post-boot state; breakpoints and watchpoints are kept, the profile is cleared |
 | `GET /registers` | | `{"a","f","b","c","d","e","h","l","sp","pc": int, "ime": bool, "halted": bool, "frames": int}` |
+| `POST /registers` | any subset of `{"a","f","b","c","d","e","h","l","sp","pc": int, "ime": bool}` | same as `GET /registers`, after setting the given fields (`f` low nibble is forced to 0) |
 | `POST /step` | `{"instructions": n}` (default 1) | same as `/registers`, after executing n instructions |
 | `POST /run` | `{"frames": n}` | `{"stopped": "frames"\|"breakpoint"\|"watchpoint", "pc": int, "frames": int, "watch": null \| {"addr", "kind", "value", "pc"}}` |
 | `GET /breakpoints` | | `{"breakpoints": [int, ...]}` (ascending) |
@@ -62,8 +63,11 @@ LY (`$FF44`) always read `$90`, exactly as in `gb-trace --doctor`.
   `/step` ignores breakpoints and watchpoints.
 * **Watchpoints** stop `/run` *after* the instruction that read or wrote
   `addr` completes; `watch` reports the address, kind, the byte read or
-  written, and the `pc` of that instruction. Memory accesses made by the
-  debugger itself (`/memory`, `/disassemble`) never trigger watchpoints.
+  written, and the `pc` of that instruction. Only the **data accesses** an
+  instruction makes count — loads, stores, read-modify-write, stack pushes
+  and pops, and the stack writes of `CALL`/`RST`/interrupt dispatch — not
+  opcode or operand fetches. Accesses made by the debugger itself
+  (`/memory`, `/disassemble`) and by OAM DMA never trigger watchpoints.
 * `/run` stops after n frames (frames as in `Emulator::step_frame`) if
   nothing triggers first; `frames` in responses is the total since load.
 * `/memory` reads and writes are untimed bus accesses (writes behave like a

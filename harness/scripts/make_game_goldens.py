@@ -68,9 +68,12 @@ def main():
     ap.add_argument("--golden", type=Path, required=True)
     ap.add_argument("--only", default="")
     ap.add_argument("--model", choices=["dmg", "cgb"], default="dmg")
+    ap.add_argument("--extra-variants", default="",
+                    help="more DELAY:SHIFT perturbations, e.g. 0:2,0:-2 (games whose RNG is seeded by input timing)")
     a = ap.parse_args()
-    global MODEL
+    global MODEL, VARIANTS
     MODEL = a.model
+    VARIANTS = VARIANTS + [tuple(int(x) for x in v.split(":")) for v in a.extra_variants.split(",") if v]
     commit = (a.golden / "SAMEBOY_COMMIT").read_text().strip() if (a.golden / "SAMEBOY_COMMIT").exists() else ""
     tmp = Path(tempfile.mkdtemp())
     empty = tmp / "empty.input"

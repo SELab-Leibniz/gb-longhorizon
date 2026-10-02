@@ -13,6 +13,7 @@ Tiers
 import argparse
 import json
 import os
+import signal
 import re
 import shutil
 import subprocess
@@ -28,10 +29,47 @@ SAMPLE_EVERY = 60   # compare one frame per second of emulated time
 ALIGN_WINDOW = 2    # ± frames of slack between reference and agent frame numbering
 
 
+HUNG = 124          # exit code sh() reports when it had to kill a command
+
+
 def sh(cmd, cwd, timeout=None, env=None):
+    """Run cmd; on timeout kill its whole process group and return exit code HUNG.
+
+    A hung emulator (say, an infinite loop in step_frame) must cost one
+    timeout, never the grading run: an uncaught TimeoutExpired here would
+    leave no results.json at all and score the trial 0."""
     t = time.time()
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
-    return p.returncode, p.stdout, p.stderr, time.time() - t
+    try:
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                             start_new_session=True)
+    except OSError as e:          # e.g. the binary was never built
+        return 127, "", f"[grader] cannot run {cmd[0]}: {e}", 0.0
+    try:
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode, out, err, time.time() - t
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        out, err = p.communicate()
+        return HUNG, out or "", (err or "") + f"\n[grader] killed after {timeout} s", time.time() - t
+
+
+def run_roms(co, roms, root, runner, max_hung=3):
+    """Run runner(co, rom) -> (status, secs, detail) over roms; after max_hung
+    consecutive wall-clock timeouts the emulator is taken to be hanging and the
+    rest of the family is skipped (counted as failures)."""
+    fam, streak = {}, 0
+    for rom in roms:
+        rel = str(rom.relative_to(root))
+        if streak >= max_hung:
+            fam[rel] = {"status": "skipped", "secs": 0.0, "detail": f"skipped after {max_hung} consecutive hangs"}
+            continue
+        status, secs, detail = runner(co, rom)
+        streak = streak + 1 if status == "hung" else 0
+        fam[rel] = {"status": status, "secs": round(secs, 1), "detail": detail}
+    return fam
 
 
 def tier0(co):
@@ -63,7 +101,9 @@ def gb(co):
 
 
 def run_blargg(co, rom):
-    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--serial-stdout"], co, timeout=600)
+    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--serial-stdout"], co, timeout=300)
+    if code == HUNG:
+        return "hung", secs, err[-300:]
     if code == 2:
         return "panic", secs, err[-500:]
     if "Passed" in out:
@@ -73,15 +113,19 @@ def run_blargg(co, rom):
     return "timeout", secs, out[-500:]
 
 
-def run_blargg_mem(co, rom):
-    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--blargg-mem"], co, timeout=600)
+def run_blargg_mem(co, rom, model="dmg"):
+    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--blargg-mem", "--model", model], co, timeout=300)
+    if code == HUNG:
+        return "hung", secs, err[-300:]
     if code == 2:
         return "panic", secs, err[-500:]
     return ("pass" if code == 20 else "fail"), secs, out[-500:]
 
 
-def run_mooneye(co, rom):
-    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(20 * 60), "--mooneye"], co, timeout=300)
+def run_mooneye(co, rom, model="dmg"):
+    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(20 * 60), "--mooneye", "--model", model], co, timeout=120)
+    if code == HUNG:
+        return "hung", secs, err[-300:]
     if code == 2:
         return "panic", secs, err[-500:]
     return ("pass" if code == 10 else "fail"), secs, out[-300:]
@@ -90,10 +134,8 @@ def run_mooneye(co, rom):
 def tier1(co):
     results = {}
     for family, runner in (("blargg", run_blargg), ("blargg-mem", run_blargg_mem), ("mooneye", run_mooneye)):
-        fam = {}
-        for rom in sorted((ROMS / "test" / family).rglob("*.gb")):
-            status, secs, detail = runner(co, rom)
-            fam[str(rom.relative_to(ROMS / "test" / family))] = {"status": status, "secs": round(secs, 1), "detail": detail}
+        root = ROMS / "test" / family
+        fam = run_roms(co, sorted(root.rglob("*.gb")), root, runner)
         n = len(fam)
         p = sum(1 for v in fam.values() if v["status"] == "pass")
         results[family] = {"passed": p, "total": n, "roms": fam}
@@ -129,19 +171,38 @@ def tier2(co):
     return {"status": "pass" if got == expected else "fail", "got": got, "expected": expected, "secs": round(secs, 1)}
 
 
-def _run_game(co, rom, frames, script):
+def run_screenshot(co, rom, model, expected):
+    """Screenshot test (cgb-acid2, Mealybug): frame hash at LD B,B vs expected."""
+    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", "1200", "--mooneye", "--model", model], co, timeout=120)
+    if code == HUNG:
+        return "hung", secs, err[-300:]
+    if code == 2:
+        return "panic", secs, err[-500:]
+    m = re.search(r"frame-hash ([0-9a-f]{16})", out)
+    if not m:
+        return "fail", secs, "no LD B,B breakpoint reached"
+    return ("pass" if m.group(1) == expected else "fail"), secs, f"got {m.group(1)} want {expected}"
+
+
+def family(co, root, runner):
+    """Run every ROM under root with runner(co, rom) -> (status, secs, detail)."""
+    roms = run_roms(co, sorted(list(root.rglob("*.gb")) + list(root.rglob("*.gbc"))), root, runner)
+    return {"passed": sum(1 for v in roms.values() if v["status"] == "pass"), "total": len(roms), "roms": roms}
+
+
+def _run_game(co, rom, frames, script, model="dmg"):
     """Run a game headless; return (exit_code, {frame: hash}, stderr, secs)."""
     with tempfile.TemporaryDirectory() as td:
         code, out, err, secs = sh(
             [gb(co), "--rom", str(rom), "--frames", str(frames), "--input-script", str(script),
-             "--dump-every", str(SAMPLE_EVERY), "--dump-dir", td, "--hash"],
-            co, timeout=900,
+             "--dump-every", str(SAMPLE_EVERY), "--dump-dir", td, "--hash", "--model", model],
+            co, timeout=300,
         )
     got = {int(k): v for k, v in re.findall(r"frame (\d+) ([0-9a-f]{16})", out)}
     return code, got, err, secs
 
 
-def tier3(co, golden):
+def tier3(co, golden, roms_dir=None, model="dmg"):
     """Per-game score in [0, 1]:
 
       fidelity  (0.7) fraction of the game's ROBUST sample frames whose hash
@@ -156,8 +217,13 @@ def tier3(co, golden):
       A panic in either run scores 0. A game "passes" at score >= 0.8.
     """
     games = {}
-    for rom in sorted((ROMS / "games").glob("*.gb")):
+    hung_streak = 0
+    roms_dir = roms_dir or (ROMS / "games")
+    for rom in sorted(list(roms_dir.glob("*.gb")) + list(roms_dir.glob("*.gbc"))):
         name = rom.stem
+        if hung_streak >= 2:
+            games[name] = {"status": "skipped", "score": 0.0, "detail": "skipped after 2 consecutive hangs"}
+            continue
         gold = golden / f"{name}.fnv"
         meta_p = golden / f"{name}.robust.json"
         script = golden / f"{name}.input"
@@ -167,14 +233,18 @@ def tier3(co, golden):
         expected = {int(k): v for k, v in (line.split() for line in gold.read_text().split("\n") if line.strip())}
         meta = json.loads(meta_p.read_text())
         frames, window = meta["frames"], meta.get("window", ALIGN_WINDOW)
-        code, got, err, secs = _run_game(co, rom, frames, script)
+        code, got, err, secs = _run_game(co, rom, frames, script, model)
+        hung_streak = hung_streak + 1 if code == HUNG else 0
+        if code == HUNG:
+            games[name] = {"status": "hung", "score": 0.0, "detail": err[-300:]}
+            continue
         if code == 2:
             games[name] = {"status": "panic", "score": 0.0, "detail": err[-500:]}
             continue
         with tempfile.TemporaryDirectory() as td:
             empty = Path(td) / "empty.input"
             empty.write_text("")
-            code2, got_noinput, err2, secs2 = _run_game(co, rom, frames, empty)
+            code2, got_noinput, err2, secs2 = _run_game(co, rom, frames, empty, model)
         if code2 == 2:
             games[name] = {"status": "panic", "score": 0.0, "detail": err2[-500:]}
             continue
@@ -204,7 +274,8 @@ def tier4(co):
     hashes = []
     for _ in range(2):
         code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", "1800", "--hash"], co, timeout=300)
-        hashes.append(re.search(r"final ([0-9a-f]{16})", out).group(1) if code == 0 else f"exit{code}")
+        mh = re.search(r"final ([0-9a-f]{16})", out)
+        hashes.append(mh.group(1) if (code == 0 and mh) else f"exit{code}")
     r["determinism"] = {"ok": hashes[0] == hashes[1] and not hashes[0].startswith("exit"), "hashes": hashes}
     # Save state: run 600, save; run 600 more → H1. Fresh: load state, run 600 → H2. H1 == H2.
     with tempfile.TemporaryDirectory() as td:
@@ -221,6 +292,115 @@ def tier4(co):
     return r
 
 
+# ---- CR-1: Game Boy Color ------------------------------------------------------
+def tier5(co, staged, golden_cgb):
+    cr1 = staged / "CR-1" / "roms"
+    r = {
+        "mooneye_cgb": family(co, cr1 / "test" / "mooneye-cgb", lambda c, rom: run_mooneye(c, rom, "cgb")),
+        "cgb_sound": family(co, cr1 / "test" / "blargg-mem-cgb", lambda c, rom: run_blargg_mem(c, rom, "cgb")),
+        "cgb_acid2": family(co, cr1 / "test" / "cgb-acid2",
+                            lambda c, rom: run_screenshot(c, rom, "cgb", rom.with_suffix(".fnv").read_text().strip())),
+    }
+    r["games_cgb"] = tier3(co, golden_cgb, roms_dir=cr1 / "games-cgb", model="cgb")
+    return r
+
+
+# ---- CR-2: pixel-accurate PPU -------------------------------------------------
+def tier6(co, staged):
+    root = staged / "CR-2" / "roms" / "test" / "mealybug-dmg"
+    return {"mealybug_dmg": family(co, root,
+            lambda c, rom: run_screenshot(c, rom, "dmg", rom.with_suffix(".fnv").read_text().strip()))}
+
+
+# ---- CR-3: tooling ------------------------------------------------------------
+def tier7(co, golden_trace):
+    r = {}
+    code, out, err, secs = sh(["cargo", "build", "--release", "--offline", "-p", "gb-tools"], co, timeout=1200)
+    r["build"] = {"ok": code == 0, "stderr_tail": err[-1500:]}
+    tr = co / "target" / "release" / "gb-trace"
+    trace = {}
+    for blocks in sorted(golden_trace.glob("*.blocks")):
+        name = blocks.stem
+        rom = ROMS / "test" / "blargg" / "cpu_instrs" / "individual" / f"{name}.gb"
+        want_lines = next((int(l.split("=")[1]) for l in blocks.read_text().splitlines() if l.startswith("# lines=")), 0)
+        if not tr.exists() or not rom.exists():
+            trace[name] = {"fraction": 0.0, "detail": "gb-trace or ROM missing"}
+            continue
+        t = time.time()
+        p1 = None
+        try:
+            p1 = subprocess.Popen([str(tr), "--rom", str(rom), "--instructions", str(want_lines), "--doctor"],
+                                  cwd=co, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            # the scorer stops reading at the first divergent block; gb-trace then dies of SIGPIPE
+            p2 = subprocess.run([sys.executable, str(HERE / "trace_blocks.py"), "score", str(blocks)],
+                                stdin=p1.stdout, capture_output=True, text=True, timeout=600)
+            res = json.loads(p2.stdout)
+        except Exception as e:  # timeouts, crashes, bad output
+            res = {"fraction": 0.0, "detail": repr(e)[:300]}
+        finally:
+            if p1 is not None:
+                p1.stdout.close()
+                p1.kill()
+                p1.wait()
+        res["secs"] = round(time.time() - t, 1)
+        trace[name] = res
+    r["trace"] = trace
+    r["trace_score"] = round(sum(v.get("fraction", 0.0) for v in trace.values()) / max(1, len(trace)), 4)
+    # profiler: compare top-20 against the reference profile of the same instructions
+    prof = {}
+    for pj in sorted(golden_trace.glob("*.profile.json")):
+        ref = json.loads(pj.read_text())
+        name = pj.name[: -len(".profile.json")]
+        rom = ROMS / "test" / "blargg" / "cpu_instrs" / "individual" / f"{name}.gb"
+        if not tr.exists():
+            prof[name] = {"ok": False, "detail": "gb-trace missing"}
+            continue
+        code, out, err, secs = sh([str(tr), "--rom", str(rom), "--instructions", str(ref["instructions"]),
+                                   "--doctor", "--profile", "--top", "20"], co, timeout=600)
+        got = [(int(a, 16), int(b)) for a, b in re.findall(r"PC:([0-9A-Fa-f]{4}) COUNT:(\d+)", out)]
+        tot = re.search(r"TOTAL:(\d+)", out)
+        want = [(e["pc"], e["count"]) for e in ref["top"]]
+        prof[name] = {"ok": got == want and bool(tot) and int(tot.group(1)) == ref["instructions"],
+                      "secs": round(secs, 1)}
+    r["profile"] = prof
+    r["profile_score"] = round(sum(1 for v in prof.values() if v.get("ok")) / max(1, len(prof)), 4)
+    # debugger API conformance
+    srv = co / "target" / "release" / "gb-server"
+    if srv.exists():
+        code, out, err, secs = sh([sys.executable, str(HERE / "api_conformance.py"), str(srv),
+                                   "--roms", str(ROMS), "--golden-trace", str(golden_trace),
+                                   "--gb", gb(co)], co, timeout=1200)
+        try:
+            r["api"] = json.loads(out.strip().splitlines()[-1])
+        except Exception:
+            r["api"] = {"score": 0.0, "detail": (out + err)[-800:]}
+    else:
+        r["api"] = {"score": 0.0, "detail": "gb-server missing"}
+    return r
+
+
+# ---- CR-4: portability ----------------------------------------------------------
+def tier8(co):
+    r = {}
+    code, out, err, secs = sh(["cargo", "build", "-p", "gb-core", "--release", "--offline", "--no-default-features",
+                               "--target", "thumbv7em-none-eabihf"], co, timeout=1200)
+    r["no_std"] = {"ok": code == 0, "stderr_tail": err[-1500:]}
+    code, out, err, secs = sh(["cargo", "build", "-p", "gb-wasm", "--release", "--offline",
+                               "--target", "wasm32-unknown-unknown"], co, timeout=1200)
+    wasm = co / "target" / "wasm32-unknown-unknown" / "release" / "gb_wasm.wasm"
+    r["wasm_build"] = {"ok": code == 0 and wasm.exists(), "stderr_tail": err[-1500:]}
+    if r["wasm_build"]["ok"]:
+        code, out, err, secs = sh([sys.executable, str(HERE / "wasm_check.py"), str(wasm), "--gb", gb(co),
+                                   "--roms", str(ROMS)], co, timeout=1200)
+        try:
+            r["wasm"] = json.loads(out.strip().splitlines()[-1])
+        except Exception:
+            r["wasm"] = {"score": 0.0, "detail": (out + err)[-800:]}
+    else:
+        r["wasm"] = {"score": 0.0, "detail": "build failed"}
+    return r
+
+
 def git_log(co):
     code, out, _, _ = sh(["git", "log", "--format=%H%x09%at%x09%s", "--reverse"], co, timeout=60)
     if code != 0:
@@ -232,9 +412,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("checkout", type=Path)
     ap.add_argument("--golden", type=Path, default=HERE.parent / "golden")
-    ap.add_argument("--tier", type=int, help="run only this tier (0-4)")
+    ap.add_argument("--tier", type=int, help="run only this tier (0-8)")
     ap.add_argument("--roms", type=Path, default=None, help="roms/ directory (default: repo's own roms/)")
     ap.add_argument("--frozen-dir", type=Path, default=None, help="directory holding reference copies of the frozen files")
+    ap.add_argument("--staged", type=Path, default=None, help="pristine change-request assets (staged/CR-N)")
+    ap.add_argument("--golden-cgb", type=Path, default=HERE.parent / "golden-cgb")
+    ap.add_argument("--golden-trace", type=Path, default=HERE.parent / "golden-trace")
     ap.add_argument("-o", "--out", type=Path, default=Path("results.json"))
     a = ap.parse_args()
     co = a.checkout.resolve()
@@ -246,7 +429,16 @@ def main():
     a.golden = a.golden.resolve()
 
     report = {"checkout": str(co), "graded_at": int(time.time()), "git_log": git_log(co)}
-    tiers = [a.tier] if a.tier is not None else [0, 1, 2, 3, 4]
+    tiers = [a.tier] if a.tier is not None else [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    # Write after every tier, so a run cut short by the verifier's time limit
+    # still leaves everything graded so far.
+    real_report = report
+
+    class Incremental(dict):
+        def __setitem__(self, k, v):
+            super().__setitem__(k, v)
+            a.out.write_text(json.dumps(self, indent=2))
+    report = Incremental(real_report)
     if 0 in tiers:
         report["tier0"] = tier0(co)
         if not report["tier0"]["build"]["ok"]:
@@ -261,6 +453,14 @@ def main():
         report["tier3"] = tier3(co, a.golden)
     if 4 in tiers:
         report["tier4"] = tier4(co)
+    if a.staged and 5 in tiers:
+        report["tier5"] = tier5(co, a.staged.resolve(), a.golden_cgb.resolve())
+    if a.staged and 6 in tiers:
+        report["tier6"] = tier6(co, a.staged.resolve())
+    if 7 in tiers:
+        report["tier7"] = tier7(co, a.golden_trace.resolve())
+    if 8 in tiers:
+        report["tier8"] = tier8(co)
 
     a.out.write_text(json.dumps(report, indent=2))
     # One-line summary for the console.
@@ -273,6 +473,16 @@ def main():
             report.get("tier3", {}).get("passed", "-"), report.get("tier3", {}).get("total", "-"),
             report.get("tier4", {}).get("determinism", {}).get("ok", "-"),
             report.get("tier4", {}).get("save_state_round_trip", {}).get("ok", "-"),
+        )
+    )
+    t5, t6, t7, t8 = (report.get(f"tier{i}", {}) for i in (5, 6, 7, 8))
+    pr = lambda d: f"{d.get('passed', '-')}/{d.get('total', '-')}"
+    print(
+        "cgb: mooneye {} · acid2 {} · games {} · sound {} | mealybug {} | trace {} · profile {} · api {} | no_std {} · wasm {}".format(
+            pr(t5.get("mooneye_cgb", {})), pr(t5.get("cgb_acid2", {})), pr(t5.get("games_cgb", {})),
+            pr(t5.get("cgb_sound", {})), pr(t6.get("mealybug_dmg", {})),
+            t7.get("trace_score", "-"), t7.get("profile_score", "-"), t7.get("api", {}).get("score", "-"),
+            t8.get("no_std", {}).get("ok", "-"), t8.get("wasm", {}).get("score", "-"),
         )
     )
     return 0

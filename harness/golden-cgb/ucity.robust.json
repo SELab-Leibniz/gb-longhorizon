@@ -5,7 +5,6 @@
  "robust": [
   60,
   120,
-  180,
   240,
   300,
   360,
@@ -83,6 +82,22 @@
   {
    "boot_delay": 59,
    "input_shift": -1
+  },
+  {
+   "boot_delay": 0,
+   "input_shift": 2
+  },
+  {
+   "boot_delay": 0,
+   "input_shift": -2
+  },
+  {
+   "boot_delay": 131,
+   "input_shift": 2
+  },
+  {
+   "boot_delay": 163,
+   "input_shift": -2
   }
  ],
  "model": "cgb",

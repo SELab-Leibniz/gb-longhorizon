@@ -45,7 +45,7 @@ git clone -q --filter=blob:none --sparse https://github.com/gbdev/database "$TMP
 git -C "$TMP/hub" checkout -q "$(cat "$CR/HUB_COMMIT")"
 declare -A G=(
   [aevilia]="aevilia/aevilia.gbc" [europa-rescue]="europa-rescue/Europa Rescue.gbc"
-  [flooder]="flooder/flooder.gb" [gbhack]="gbhack/gbhack.gbc" [geometrix]="geometrix/geometrix.gbc"
+  [gbhack]="gbhack/gbhack.gbc"
   [ucity]="ucity/ucity.gbc" [labirinth]="labirinth/Labirinth.gbc" [a-slime-travel]="a-slime-travel/aslimetravel.gbc"
   [tobudx]="tobutobugirldeluxe/tobudx.gb" [libbet]="libbet/libbet.gb" [tuff]="tuff/game.gb" [big2small]="big2small/big2small.gb"
 )

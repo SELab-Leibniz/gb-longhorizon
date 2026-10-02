@@ -80,6 +80,22 @@
   {
    "boot_delay": 59,
    "input_shift": -1
+  },
+  {
+   "boot_delay": 0,
+   "input_shift": 2
+  },
+  {
+   "boot_delay": 0,
+   "input_shift": -2
+  },
+  {
+   "boot_delay": 131,
+   "input_shift": 2
+  },
+  {
+   "boot_delay": 163,
+   "input_shift": -2
   }
  ],
  "model": "cgb",

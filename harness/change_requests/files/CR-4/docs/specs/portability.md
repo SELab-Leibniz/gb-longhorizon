@@ -46,15 +46,27 @@ The frame bytes are exactly what `gb --hash` hashes, so a host can compute
 the same FNV-1a-64 value. Running the same ROM for the same number of frames
 with the same buttons must give the **same hash in WebAssembly as natively**.
 
-A minimal host, for your own testing (Node.js 18):
+A minimal host, for your own testing (`node host.js`, Node.js 18):
 
 ```js
 const fs = require("fs");
-const { instance } = await WebAssembly.instantiate(fs.readFileSync("gb_wasm.wasm"), {});
-const e = instance.exports, rom = fs.readFileSync("roms/test/acid2/dmg-acid2.gb");
-const p = e.gb_alloc(rom.length);
-new Uint8Array(e.memory.buffer, p, rom.length).set(rom);
-if (e.gb_load(p, rom.length, 0) !== 0) throw new Error("load failed");
-e.gb_run_frames(120);
-const frame = new Uint8Array(e.memory.buffer, e.gb_frame_ptr(), e.gb_frame_len());
+(async () => {
+  const wasm = fs.readFileSync("target/wasm32-unknown-unknown/release/gb_wasm.wasm");
+  const { instance } = await WebAssembly.instantiate(wasm, {});   // no imports
+  const e = instance.exports, rom = fs.readFileSync("roms/test/acid2/dmg-acid2.gb");
+  const p = e.gb_alloc(rom.length);
+  new Uint8Array(e.memory.buffer, p, rom.length).set(rom);
+  if (e.gb_load(p, rom.length, 0) !== 0) throw new Error("load failed");
+  e.gb_set_buttons(0);
+  e.gb_run_frames(120);
+  const frame = new Uint8Array(e.memory.buffer, e.gb_frame_ptr(), e.gb_frame_len());
+  let h = 0xcbf29ce484222325n;                                      // FNV-1a-64
+  for (const b of frame) h = ((h ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  console.log(h.toString(16).padStart(16, "0"));   // must equal: gb --rom ... --frames 120 --hash
+})();
 ```
+
+The verifier runs a check like this for several DMG and CGB ROMs, with and
+without held buttons, using a fresh instance per ROM. Read
+`gb_frame_ptr()`/`gb_frame_len()` only after `gb_run_frames` returns, and
+re-read `memory.buffer` afterwards (memory may have grown).

@@ -29,7 +29,14 @@ usually within a couple of minutes. Only `## Q:` headings are read. They
 are responsive but not technical — ask about requirements, not
 implementation.
 
-Commit as you go. When you consider the work complete and verified, write
-`SUBMISSION.md` at the repository root: what was implemented, which checks
-pass, and what (if anything) is known to be missing. Then commit it. We'll
-check back in two days; whatever is on the branch then is what we take.
+Requirements will evolve. The product owner posts change requests to
+`CHANGE_REQUESTS.md` — new scope, sometimes with new test assets or specs —
+and does so when you report the current scope finished, or when the
+schedule says so. Check that file whenever you pick the work up again.
+Change requests add to the scope; nothing that already works may regress.
+
+Commit as you go. Whenever you consider the current scope complete and
+verified, write or update `SUBMISSION.md` at the repository root: what was
+implemented, which checks pass, and what (if anything) is known to be
+missing. Then commit it. We'll check back in two days; whatever is
+committed on the branch then is what we take.

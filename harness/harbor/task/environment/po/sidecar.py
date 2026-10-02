@@ -95,6 +95,16 @@ def release(req, trigger, log):
     log("cr.released", id=req["id"], title=req["title"], trigger=trigger, files=copied)
 
 
+def released_text():
+    """Texts of the change requests released so far, from the sidecar's own record."""
+    state_p = ART / "cr_state.json"
+    if not state_p.exists():
+        return ""
+    sched = {r["id"]: r for r in json.loads((CR_DIR / "schedule.json").read_text())["requests"]}
+    ids = [r["id"] for r in json.loads(state_p.read_text())["released"]]
+    return "\n\n".join((CR_DIR / sched[i]["text"]).read_text().strip() for i in ids if i in sched)
+
+
 def change_requests(log, start):
     sched = json.loads((CR_DIR / "schedule.json").read_text())["requests"]
     scale = float(os.environ.get("GB_CR_TIME_SCALE", "1"))
@@ -137,6 +147,7 @@ def main():
                                poll_sec=float(os.environ.get("GB_PO_POLL_SEC", "20")))
     threading.Thread(target=snapshots, args=(log, float(os.environ.get("GB_SNAPSHOT_HOURS", "2"))), daemon=True).start()
     if (CR_DIR / "schedule.json").exists():
+        po.released_provider = released_text
         threading.Thread(target=change_requests, args=(log, log.t0), daemon=True).start()
     po.run(threading.Event())  # never set: runs until the container is stopped
 

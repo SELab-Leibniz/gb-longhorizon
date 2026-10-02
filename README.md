@@ -38,6 +38,7 @@ roms/test/          Blargg, Mooneye, dmg-acid2 test ROMs + expected results
 roms/games/         homebrew games for manual and scripted testing
 DECISIONS.md        architectural decisions already taken — read first
 TESTING.md          how to verify your work, step by step
+CHANGE_REQUESTS.md  scope changes from the product owner (watch it)
 ```
 
 ✓ = implemented, ✗ = `todo!()` stub with its interface and doc comment in place.

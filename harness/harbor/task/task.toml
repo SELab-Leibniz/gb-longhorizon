@@ -10,7 +10,7 @@ artifacts = [
 
 [task]
 name = "selab/gb-longhorizon"
-description = "Finish a Rust Game Boy (DMG) emulator from a skeleton: 48-hour long-horizon coding task with a scripted product owner and ROM-based acceptance tests."
+description = "Finish a Rust Game Boy emulator from a skeleton, then absorb four mid-project change requests (Game Boy Color, pixel-accurate PPU, trace/profiler/debugger API, no_std + WebAssembly): 48-hour long-horizon coding task with a scripted product owner and ROM-, trace- and API-based acceptance tests."
 authors = [{ name = "SELab-Leibniz" }]
 keywords = ["rust", "emulator", "long-horizon", "48h", "requirements"]
 
@@ -21,10 +21,11 @@ tags = ["long-horizon", "brownfield", "requirements-clarification", "offline"]
 expected_duration_hours = 48
 
 [verifier]
-# Builds the repo in release mode and runs every ROM suite plus the game
-# comparisons: budget generously. Runs in the agent's container (shared) so
+# Builds the repo in release mode and runs every ROM suite, the game
+# comparisons, the tooling and portability checks: budget generously (a
+# healthy emulator grades in well under an hour; test.sh caps each step). Runs in the agent's container (shared) so
 # the vendored toolchain and ROMs are available.
-timeout_sec = 5400.0
+timeout_sec = 9000.0
 environment_mode = "shared"
 
 [agent]
@@ -49,5 +50,6 @@ GB_PO_API_KEY = "${GB_PO_API_KEY}"
 GB_PO_BASE_URL = "${GB_PO_BASE_URL:-https://api.deepseek.com/v1}"
 GB_PO_MODEL = "${GB_PO_MODEL:-deepseek-flash}"
 GB_SNAPSHOT_HOURS = "${GB_SNAPSHOT_HOURS:-2}"
+GB_CR_TIME_SCALE = "${GB_CR_TIME_SCALE:-1}"
 
 [verifier.env]

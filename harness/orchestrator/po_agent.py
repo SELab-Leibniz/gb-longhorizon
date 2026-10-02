@@ -62,13 +62,17 @@ class ProductOwner:
         self.system = SYSTEM_TEMPLATE.format(persona=persona, spec=spec)
         self.po_log = run_dir / "po_log.jsonl"
         self.answered = 0
+        # Optional callable returning the text of the change requests released so
+        # far. The sidecar sets it from its own release record; without it we fall
+        # back to the workspace file (which the agent could edit).
+        self.released_provider = None
 
     # ---- LLM --------------------------------------------------------------
 
     def released_context(self) -> str:
         """Change requests already released to the engineer (they may ask about these)."""
         try:
-            text = self.backend.read_file("CHANGE_REQUESTS.md")
+            text = self.released_provider() if self.released_provider else self.backend.read_file("CHANGE_REQUESTS.md")
         except Exception:
             text = ""
         return text.strip() or "(no change requests released yet)"

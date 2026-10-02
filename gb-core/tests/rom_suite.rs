@@ -17,7 +17,7 @@
 //! * `roms/test/mooneye-cgb/**` — Mooneye ROMs for the Game Boy Color, run
 //!   with `Model::Cgb`, same `LD B,B` protocol.
 //! * `roms/test/blargg-mem-cgb/**` — Blargg `cgb_sound`, memory protocol, CGB.
-//! * `roms/test/cgb-acid2/`, `roms/test/mealybug-dmg/`, `roms/test/mealybug-cgb/`
+//! * `roms/test/cgb-acid2/`, `roms/test/mealybug-dmg/`
 //!   — screenshot tests: run to `LD B,B`, hash the last completed frame
 //!   (shades on DMG, RGB555 on CGB) and compare with `<rom>.fnv` next to the
 //!   ROM (derived from the test's own reference screenshot).
@@ -35,7 +35,7 @@
 //! See per-ROM detail:      add `-- --nocapture`
 //! Run a single family:     `-- blargg` / `-- blargg_mem` / `-- mooneye` / `-- acid2`
 //!                           `-- mooneye_cgb` / `-- blargg_mem_cgb` / `-- cgb_acid2`
-//!                           `-- mealybug_dmg` / `-- mealybug_cgb`
+//!                           `-- mealybug_dmg`
 //! Skip a family (e.g. in CI without ROMs): set `GB_SKIP_ROMS=1`.
 
 use gb_core::{Emulator, Model, StepResult};
@@ -409,20 +409,6 @@ fn mealybug_dmg() {
         run_family("mealybug-dmg", |p, rom| run_screenshot(p, rom, Model::Dmg)),
     );
 }
-
-#[test]
-fn mealybug_cgb() {
-    assert_all_passed(
-        "mealybug-cgb",
-        run_family("mealybug-cgb", |p, rom| run_screenshot(p, rom, Model::Cgb)),
-    );
-}
-
-#[test]
-fn acid2() {
-    if std::env::var_os("GB_SKIP_ROMS").is_some() {
-        return;
-    }
     let dir = roms_root().join("acid2");
     let rom_path = dir.join("dmg-acid2.gb");
     let expected_path = dir.join("expected.fnv");

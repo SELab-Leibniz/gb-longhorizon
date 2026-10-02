@@ -43,3 +43,16 @@ __pycache__/
 /logs/
 /.chrys/
 /.jiuwenswarm/
+
+# verifier asset bundle (harness/scripts/build_assets.sh)
+/harness/.assets/
+/harness/harbor/task/tests/roms/
+/harness/harbor/task/tests/staged/
+/harness/harbor/task/tests/golden-cgb/
+/harness/harbor/task/tests/golden-trace/
+/harness/harbor/task/tests/*.py
+/harness/harbor/task/tests/*.js
+/harness/harbor/task/environment/po/staged/
+/harness/harbor/task/environment/po/change_requests/
+/harness/harbor/task/environment/po/sidecar_po.py
+/roms/games-cgb/

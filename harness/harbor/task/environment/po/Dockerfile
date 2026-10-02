@@ -7,5 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 WORKDIR /po
 # Staged by harness/harbor/sync.sh from harness/{HIDDEN_SPEC,PRODUCT_OWNER}.md and orchestrator/po_agent.py
 COPY HIDDEN_SPEC.md PRODUCT_OWNER.md po_agent.py sidecar.py ./
+# Change requests and the assets they deliver (staged by harness/harbor/sync.sh)
+COPY change_requests /po/change_requests
+COPY staged /po/staged
 RUN git config --global --add safe.directory /work
 CMD ["python3", "-u", "/po/sidecar.py"]

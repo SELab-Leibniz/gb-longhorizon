@@ -5,9 +5,10 @@
     screenshots.py --reference RUNNER --roms ROMS --golden GOLDEN [--every 300]
 
 Agent mode (used by the Harbor verifier, writes to /logs/verifier/screenshots):
-  for dmg-acid2 and each game in roms/games, run the agent's `gb` CLI with the
+  for dmg-acid2 and each game in roms/games (plus, with --staged/--golden-cgb,
+  cgb-acid2 and the CGB games in CGB mode), run the agent's `gb` CLI with the
   game's input script, dump a frame every N frames, and write
-    DIR/<game>/agent_NNNNNN.png      the agent's frame, 3x, DMG palette
+    DIR/<game>/agent_NNNNNN.png      the agent's frame, 3x (DMG palette / CGB colour)
     DIR/<game>/compare_NNNNNN.png    agent | reference side by side
     DIR/summary.json                 per game: loaded? panicked? blank? frames
     DIR/index.html                   one page with every comparison, for a human
@@ -30,67 +31,67 @@ import struct
 import subprocess
 import tempfile
 import zlib
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pngio import read_png  # noqa: E402
 
 W, H, SCALE = 160, 144, 3
 # Classic DMG green, shade 0 (lightest) .. 3 (darkest)
-PALETTE = bytes([0xE0, 0xF8, 0xD0, 0x88, 0xC0, 0x70, 0x34, 0x68, 0x56, 0x08, 0x18, 0x20])
+DMG_RGB = [(0xE0, 0xF8, 0xD0), (0x88, 0xC0, 0x70), (0x34, 0x68, 0x56), (0x08, 0x18, 0x20)]
+SEPARATOR = (0xFF, 0xFF, 0xFF)
 
 
-def pgm_to_shades(data: bytes) -> bytes:
-    """Read a 160x144 binary PGM (as written by gb-cli / the reference) to shades 0..3."""
+def dump_to_rgb(path: Path) -> list:
+    """A 160x144 frame dump from gb-cli / the reference runner -> list of (r, g, b).
+
+    PGM (DMG shades as grey levels) is shown in the DMG palette; PPM (CGB
+    colour, 8-bit channels) as is."""
+    data = path.read_bytes()
+    if path.suffix == ".ppm":
+        body = data[-W * H * 3:]
+        return [tuple(body[3 * i:3 * i + 3]) for i in range(W * H)]
     body = data[-W * H:]
-    return bytes(3 - min(3, v * 4 // 256) for v in body)
+    return [DMG_RGB[3 - min(3, v * 4 // 256)] for v in body]
 
 
-def png(shade_rows, width, height) -> bytes:
-    """Paletted 2-colour-depth PNG from rows of shade values (0..3)."""
-    raw = b"".join(b"\x00" + bytes(row) for row in shade_rows)
+def png(rows, width, height) -> bytes:
+    """Truecolour PNG from rows of (r, g, b) tuples."""
+    raw = b"".join(b"\x00" + bytes(c for px in row for c in px) for row in rows)
     def chunk(t, d):
         return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
     return (b"\x89PNG\r\n\x1a\n"
-            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 3, 0, 0, 0))
-            + chunk(b"PLTE", PALETTE + b"\xff\xff\xff")      # index 4 = white separator
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw, 9))
             + chunk(b"IEND", b""))
 
 
-def scaled_rows(shades: bytes):
+def scaled_rows(pixels: list):
     for y in range(H):
-        row = [s for s in shades[y * W:(y + 1) * W] for _ in range(SCALE)]
+        row = [px for px in pixels[y * W:(y + 1) * W] for _ in range(SCALE)]
         for _ in range(SCALE):
             yield row
 
 
-def frame_png(shades: bytes) -> bytes:
-    return png(list(scaled_rows(shades)), W * SCALE, H * SCALE)
+def frame_png(pixels: list) -> bytes:
+    return png(list(scaled_rows(pixels)), W * SCALE, H * SCALE)
 
 
-def compare_png(left: bytes, right: bytes | None) -> bytes:
+def compare_png(left: list, right: list | None) -> bytes:
     gap = 8
     lrows = list(scaled_rows(left))
-    rrows = list(scaled_rows(right)) if right else [[4] * (W * SCALE)] * (H * SCALE)
-    rows = [l + [4] * gap + r for l, r in zip(lrows, rrows)]
+    rrows = list(scaled_rows(right)) if right else [[SEPARATOR] * (W * SCALE)] * (H * SCALE)
+    rows = [l + [SEPARATOR] * gap + r for l, r in zip(lrows, rrows)]
     return png(rows, W * SCALE * 2 + gap, H * SCALE)
 
 
-def png_to_shades(data: bytes) -> bytes | None:
-    """Inverse of frame_png for our own files (reads IDAT, undoes the 3x scale)."""
+def read_reference(path: Path) -> list | None:
+    """A reference screen written by frame_png (any earlier paletted version too)."""
     try:
-        pos, idat = 8, b""
-        while pos < len(data):
-            n = struct.unpack(">I", data[pos:pos + 4])[0]
-            t = data[pos + 4:pos + 8]
-            if t == b"IDAT":
-                idat += data[pos + 8:pos + 8 + n]
-            pos += 12 + n
-        raw = zlib.decompress(idat)
-        stride = W * SCALE + 1
-        out = bytearray()
-        for y in range(H):
-            row = raw[(y * SCALE) * stride + 1:(y * SCALE) * stride + stride]
-            out += bytes(row[::SCALE])
-        return bytes(out)
+        w, h, ch, rows = read_png(path.read_bytes())
+        return [tuple(rows[y * SCALE][x * SCALE][:3]) if ch >= 3 else (rows[y * SCALE][x * SCALE][0],) * 3
+                for y in range(H) for x in range(W)]
     except Exception:
         return None
 
@@ -100,13 +101,25 @@ def script_frames(script: Path) -> int:
     return (max(nums) if nums else 0) + 600
 
 
-def targets(roms: Path, golden: Path):
+def targets(a):
+    """(name, rom, input script, frames, model, reference-screens dir)."""
+    roms, golden = a.roms, a.golden
     acid = roms / "test" / "acid2" / "dmg-acid2.gb"
     if acid.exists():
-        yield "dmg-acid2", acid, None, 120
+        yield "dmg-acid2", acid, None, 120, "dmg", golden / "screens" / "dmg-acid2"
     for rom in sorted((roms / "games").glob("*.gb")):
         script = golden / f"{rom.stem}.input"
-        yield rom.stem, rom, (script if script.exists() else None), (script_frames(script) if script.exists() else 1800)
+        yield (rom.stem, rom, (script if script.exists() else None),
+               (script_frames(script) if script.exists() else 1800), "dmg", golden / "screens" / rom.stem)
+    if a.staged and a.golden_cgb:
+        cr1 = a.staged / "CR-1" / "roms"
+        acid = cr1 / "test" / "cgb-acid2" / "cgb-acid2.gbc"
+        if acid.exists():
+            yield "cgb-acid2", acid, None, 120, "cgb", a.golden_cgb / "screens" / "cgb-acid2"
+        for rom in sorted((cr1 / "games-cgb").glob("*.gbc")):
+            script = a.golden_cgb / f"{rom.stem}.input"
+            yield (f"cgb-{rom.stem}", rom, (script if script.exists() else None),
+                   (script_frames(script) if script.exists() else 1800), "cgb", a.golden_cgb / "screens" / rom.stem)
 
 
 def run_and_dump(cmd, cwd=None, timeout=900):
@@ -126,7 +139,7 @@ def agent_mode(a):
     if not gb.exists():
         # The graded commit did not build: nothing can boot. Never fall back to
         # some other binary — that would show screenshots of code not graded.
-        for name, *_ in targets(a.roms, a.golden):
+        for name, *_ in targets(a):
             summary[name] = {"status": "no_binary", "loaded": False, "exit_code": None,
                              "frames_captured": [], "stderr_tail": "gb binary missing (build failed)"}
         (out / "summary.json").write_text(json.dumps(summary, indent=2))
@@ -135,27 +148,28 @@ def agent_mode(a):
         print(f"screenshots: build missing -> {out}")
         return
     rows_html = []
-    for name, rom, script, frames in targets(a.roms, a.golden):
-        every = 120 if name == "dmg-acid2" else a.every
+    for name, rom, script, frames, model, ref_dir in targets(a):
+        every = 120 if name.endswith("acid2") else a.every
         gdir = out / name
         gdir.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory() as td:
-            cmd = [str(gb), "--rom", str(rom), "--frames", str(frames), "--dump-every", str(every), "--dump-dir", td]
+            cmd = [str(gb), "--rom", str(rom), "--frames", str(frames), "--dump-every", str(every), "--dump-dir", td,
+                   "--model", model]
             if script:
                 cmd += ["--input-script", str(script)]
             code, so, se = run_and_dump(cmd, cwd=co)
-            dumps = sorted(Path(td).glob("frame_*.pgm"))
+            dumps = sorted(list(Path(td).glob("frame_*.pgm")) + list(Path(td).glob("frame_*.ppm")))
             flat = True
             shots = []
             for d in dumps:
                 n = int(re.search(r"(\d+)", d.name).group(1))
-                shades = pgm_to_shades(d.read_bytes())
-                if len(set(shades)) > 1:
+                pixels = dump_to_rgb(d)
+                if len(set(pixels)) > 1:
                     flat = False
-                (gdir / f"agent_{n:06d}.png").write_bytes(frame_png(shades))
-                ref_p = a.golden / "screens" / name / f"ref_{n:06d}.png"
-                ref = png_to_shades(ref_p.read_bytes()) if ref_p.exists() else None
-                (gdir / f"compare_{n:06d}.png").write_bytes(compare_png(shades, ref))
+                (gdir / f"agent_{n:06d}.png").write_bytes(frame_png(pixels))
+                ref_p = ref_dir / f"ref_{n:06d}.png"
+                ref = read_reference(ref_p) if ref_p.exists() else None
+                (gdir / f"compare_{n:06d}.png").write_bytes(compare_png(pixels, ref))
                 shots.append(n)
         status = ("load_error" if code == 1 else "panic" if code == 2 else "timeout" if code == 124
                   else "no_frames" if not shots else "blank" if flat else "ok")
@@ -185,16 +199,15 @@ pre{{background:#fff;border:1px solid #eee;padding:8px;white-space:pre-wrap}}</s
 
 def reference_mode(a):
     runner = a.reference
-    for name, rom, script, frames in targets(a.roms, a.golden):
-        every = 120 if name == "dmg-acid2" else a.every
-        sdir = a.golden / "screens" / name
+    for name, rom, script, frames, model, sdir in targets(a):
+        every = 120 if name.endswith("acid2") else a.every
         sdir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory() as td:
             subprocess.run([runner, str(rom), str(frames), str(script) if script else "/dev/null", td,
-                            "--dump-every", str(every)], check=True, capture_output=True)
-            for d in sorted(Path(td).glob("frame_*.pgm")):
+                            "--dump-every", str(every), "--model", model], check=True, capture_output=True)
+            for d in sorted(list(Path(td).glob("frame_*.pgm")) + list(Path(td).glob("frame_*.ppm"))):
                 n = int(re.search(r"(\d+)", d.name).group(1))
-                (sdir / f"ref_{n:06d}.png").write_bytes(frame_png(pgm_to_shades(d.read_bytes())))
+                (sdir / f"ref_{n:06d}.png").write_bytes(frame_png(dump_to_rgb(d)))
         print(f"reference screens: {name}: {len(list(sdir.glob('ref_*.png')))}")
 
 
@@ -206,6 +219,8 @@ def main():
     ap.add_argument("--out", type=Path)
     ap.add_argument("--every", type=int, default=300, help="capture a frame every N frames (default 300 = 5 s)")
     ap.add_argument("--reference", help="path to sameboy_runner: render reference screens instead")
+    ap.add_argument("--staged", type=Path, help="change-request assets (adds cgb-acid2 and the CGB games)")
+    ap.add_argument("--golden-cgb", type=Path, help="golden data for the CGB games (input scripts, screens/)")
     a = ap.parse_args()
     a.roms, a.golden = a.roms.resolve(), a.golden.resolve()
     if a.reference:
