@@ -20,10 +20,6 @@ ARG JW_REPO=https://github.com/openJiuwen-ai/jiuwenswarm
 ARG JW_COMMIT=f0a69728c96b5961d993449f1a901cbd2f4dac5b
 
 ENV DEBIAN_FRONTEND=noninteractive
-# The repo's rust-toolchain.toml says "stable" (so dev machines build); inside
-# the sandbox pin the toolchain the image ships, so rustup never tries to
-# download a newer stable and every run uses the same compiler.
-ENV RUSTUP_TOOLCHAIN=1.97.0
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git ca-certificates curl unzip cmake build-essential python3 python3-yaml ripgrep procps \
     && rm -rf /var/lib/apt/lists/* \
@@ -41,6 +37,11 @@ RUN git clone "$ICODE_REPO" /opt/icode && cd /opt/icode && git checkout -q "$ICO
 RUN git clone "$JW_REPO" /opt/jiuwenswarm && cd /opt/jiuwenswarm && git checkout -q "$JW_COMMIT" \
     && uv venv --python 3.12 && uv pip install -e .
 # (the process SDK is imported from sdks/python/src by the adapter; no install needed)
+
+# The repo's rust-toolchain.toml says "stable" (so dev machines build); inside
+# the sandbox pin the toolchain the image ships, so rustup never tries to
+# download a newer stable and every run uses the same compiler.
+ENV RUSTUP_TOOLCHAIN=1.97.0
 
 # ---- the task repository --------------------------------------------------
 # scaffold.tar = `git archive HEAD` of this repo, staged by harness/harbor/sync.sh
