@@ -33,3 +33,6 @@ __pycache__/
 /jobs/
 /harness/harbor/task/environment/scaffold.tar
 /harness/harbor/task/tests/screenshots.py
+/docs/gbctr/
+/docs/opcode_descriptions.json
+/docs/OPCODES_COMMIT

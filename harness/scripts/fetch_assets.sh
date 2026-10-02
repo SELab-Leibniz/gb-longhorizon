@@ -17,6 +17,16 @@ mkdir -p "$ROOT/docs/pandocs"
 cp -r "$TMP/pandocs/src/"*.md "$ROOT/docs/pandocs/"
 (cd "$TMP/pandocs" && git rev-parse HEAD) > "$ROOT/docs/pandocs/COMMIT"
 
+echo "==> Game Boy: Complete Technical Reference (Gekkio, CC BY-SA 4.0) — per-M-cycle instruction timing"
+GBCTR_COMMIT="5ce83a107013e9bec4a19fcfdd440fb5dd75c616"
+git clone -q https://github.com/Gekkio/gb-ctr "$TMP/gbctr"
+git -C "$TMP/gbctr" checkout -q "$GBCTR_COMMIT"
+rm -rf "$ROOT/docs/gbctr" && mkdir -p "$ROOT/docs/gbctr"
+cp -r "$TMP/gbctr/chapter" "$TMP/gbctr/appendix" "$TMP/gbctr/LICENSE" "$ROOT/docs/gbctr/"
+cp "$TMP/gbctr/"*.typ "$ROOT/docs/gbctr/" 2>/dev/null || true
+find "$ROOT/docs/gbctr" -type f ! -name '*.typ' ! -name LICENSE -delete
+echo "$GBCTR_COMMIT" > "$ROOT/docs/gbctr/COMMIT"
+
 echo "==> Opcode table (gbdev/gb-opcodes; also has per-opcode descriptions)"
 git clone --depth 1 https://github.com/gbdev/gb-opcodes "$TMP/gbop"
 cp "$TMP/gbop/Opcodes.json" "$ROOT/docs/opcodes.json"

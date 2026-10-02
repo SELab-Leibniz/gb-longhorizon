@@ -7,7 +7,14 @@ Populated by `harness/scripts/fetch_assets.sh`:
   `Timer_and_Divider_Registers.md`, `Interrupts.md`, `MBCs.md`,
   `Power_Up_Sequence.md`.
 - `opcodes.json` — machine-readable table of all 512 opcodes: mnemonic,
-  operands, byte length, cycle counts (taken / not taken) and flag effects.
+  operands, byte length, cycle counts (taken / not taken) and flag effects;
+  `opcode_descriptions.json` has a prose description of each.
+- `gbctr/` — *Game Boy: Complete Technical Reference* (Gekkio, CC BY-SA 4.0),
+  Typst source. `chapter/cpu/instruction-set.typ` gives every instruction
+  **M-cycle by M-cycle** (which cycle fetches, reads, writes or idles) —
+  the reference for the bus model in `DECISIONS.md` D1.
+  `chapter/cpu/timing.typ` explains fetch/execute overlap. The cartridge and
+  peripheral chapters complement Pan Docs.
 
 The sandbox has no network. Everything you need about the hardware is in
 this directory; if something is missing, ask the product owner.

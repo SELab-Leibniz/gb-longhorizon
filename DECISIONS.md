@@ -24,8 +24,8 @@ Mooneye acceptance tests (`call_timing`, `push_timing`, `oam_dma_timing`,
 ticking peripherals after a whole instruction makes them impossible to pass.
 
 **Consequence.** `Mmu::read`/`write` remain as untimed accessors (for OAM
-DMA's source reads, debugging, save states). Instruction timings come from
-the per-M-cycle access pattern in `docs/opcodes.json` plus Pan Docs.
+DMA's source reads, debugging, save states). The per-M-cycle access pattern
+of every instruction is in `docs/gbctr/chapter/cpu/instruction-set.typ`.
 `Emulator::step_frame` loops `step_instruction` until 70 224 T-cycles have
 elapsed; a frame may overrun by up to one instruction, which is fine because
 the PPU tracks its own position. Sub-M-cycle (T-cycle) PPU accuracy is
@@ -47,6 +47,10 @@ testable.
 I/O registers and the PPU start in the state the boot ROM leaves them in
 (AF=01B0, BC=0013, DE=00D8, HL=014D, SP=FFFE, PC=0100; LCDC=91, BGP=FC,
 DIV counter=ABCC, IF=E1, etc. — see Pan Docs "Power Up Sequence").
+
+All RAM (WRAM, HRAM, VRAM, OAM, cartridge RAM) starts zero-filled. Real
+hardware powers up with semi-random RAM, but zero-fill keeps the emulator
+deterministic (same ROM + same input → same frames, always).
 
 **Why.** The boot ROM is Nintendo's copyrighted code and cannot be shipped.
 Test ROMs and homebrew assume the post-boot state and do not depend on the
