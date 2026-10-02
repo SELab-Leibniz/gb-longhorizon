@@ -16,7 +16,7 @@ pub mod registers;
 
 pub use registers::{Flags, Registers};
 
-use crate::emulator::{StateError, StepResult};
+use crate::emulator::{Model, StateError, StepResult};
 use crate::mmu::Mmu;
 
 /// CPU state: registers plus the control flags that are not memory-mapped.
@@ -36,11 +36,19 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    /// Register values after the DMG boot ROM has finished
-    /// (AF=01B0 BC=0013 DE=00D8 HL=014D SP=FFFE PC=0100).
-    pub fn post_boot() -> Self {
+    /// Register values after the boot ROM has finished.
+    /// DMG: AF=01B0 BC=0013 DE=00D8 HL=014D SP=FFFE PC=0100.
+    /// CGB (CGB-mode cartridge): AF=1180 BC=0000 DE=FF56 HL=000D SP=FFFE PC=0100.
+    pub fn post_boot(model: Model) -> Self {
+        let mut regs = Registers::post_boot();
+        if model == Model::Cgb {
+            regs.set_af(0x1180);
+            regs.set_bc(0x0000);
+            regs.set_de(0xFF56);
+            regs.set_hl(0x000D);
+        }
         Self {
-            regs: Registers::post_boot(),
+            regs,
             ime: false,
             ime_pending: false,
             halted: false,

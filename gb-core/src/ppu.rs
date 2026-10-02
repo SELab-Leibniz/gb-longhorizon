@@ -16,28 +16,42 @@
 //!
 //! Interrupts raised: VBlank (IF bit 0) and STAT (IF bit 1, with the
 //! "STAT blocking" quirk where multiple STAT conditions only fire once).
+//!
+//! CGB mode (Pan Docs "Palettes", "Tile Data", "VRAM Banks", "OAM"): two
+//! VRAM banks (VBK, FF4F) with per-tile BG attributes in bank 1 (palette,
+//! bank, flips, priority); eight BG and eight OBJ palettes of four RGB555
+//! colours written through BCPS/BCPD and OCPS/OCPD (FF68–FF6B); the CGB
+//! BG-to-OBJ priority rules (LCDC bit 0 becomes "master priority"); OBJ
+//! priority by OAM index unless OPRI (FF6C) selects DMG ordering. Output goes
+//! to the RGB555 framebuffer; in DMG mode fill it from the shades too.
 
-use crate::emulator::StateError;
+use crate::emulator::{Model, StateError};
 use crate::FRAME_PIXELS;
 
 /// LCD controller + video memory.
 pub struct Ppu {
-    /// 8 KiB video RAM.
+    /// Which console this PPU belongs to.
+    pub model: Model,
+    /// Video RAM: 8 KiB on DMG, 16 KiB (two banks) on CGB.
     pub vram: Vec<u8>,
     /// 160 bytes sprite attribute memory.
     pub oam: Vec<u8>,
-    /// Back buffer written during the frame, swapped at VBlank.
+    /// Last completed frame, shades 0..=3 (DMG output).
     framebuffer: Vec<u8>,
+    /// Last completed frame, RGB555 (both modes).
+    framebuffer_rgb555: Vec<u16>,
     // TODO(agent): LCD registers, mode/dot counters, per-frame state.
 }
 
 impl Ppu {
     /// PPU in post-boot state (LCD on, LCDC=0x91, BGP=0xFC).
-    pub fn new() -> Self {
+    pub fn new(model: Model) -> Self {
         Self {
-            vram: vec![0; 0x2000],
+            model,
+            vram: vec![0; if model == Model::Cgb { 0x4000 } else { 0x2000 }],
             oam: vec![0; 0xA0],
             framebuffer: vec![0; FRAME_PIXELS],
+            framebuffer_rgb555: vec![0x7FFF; FRAME_PIXELS],
         }
     }
 
@@ -57,9 +71,15 @@ impl Ppu {
         todo!("ppu::Ppu::tick — mode state machine + scanline rendering")
     }
 
-    /// The last completed frame.
+    /// The last completed frame as shades 0..=3 (DMG mode).
     pub fn framebuffer(&self) -> &[u8] {
         &self.framebuffer
+    }
+
+    /// The last completed frame as RGB555 (both modes; DMG shades map to
+    /// 0x7FFF, 0x56B5, 0x294A, 0x0000).
+    pub fn framebuffer_rgb555(&self) -> &[u16] {
+        &self.framebuffer_rgb555
     }
 
     /// Append PPU state to a save-state buffer.
@@ -75,6 +95,6 @@ impl Ppu {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Self::new()
+        Self::new(Model::Dmg)
     }
 }

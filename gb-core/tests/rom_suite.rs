@@ -14,6 +14,16 @@
 //!   cartridge RAM (`dmg_sound`, `oam_bug`): once $A001-$A003 hold the
 //!   signature DE B0 61, $A000 is the status (0x80 = running, 0 = passed,
 //!   anything else = failed) and $A004.. is the zero-terminated text output.
+//! * `roms/test/mooneye-cgb/**` — Mooneye ROMs for the Game Boy Color, run
+//!   with `Model::Cgb`, same `LD B,B` protocol.
+//! * `roms/test/blargg-mem-cgb/**` — Blargg `cgb_sound`, memory protocol, CGB.
+//! * `roms/test/cgb-acid2/`, `roms/test/mealybug-dmg/`, `roms/test/mealybug-cgb/`
+//!   — screenshot tests: run to `LD B,B`, hash the last completed frame
+//!   (shades on DMG, RGB555 on CGB) and compare with `<rom>.fnv` next to the
+//!   ROM (derived from the test's own reference screenshot).
+//!
+//! Families whose directory is absent are skipped, so suites delivered later
+//! (e.g. with a change request) simply start running when their ROMs appear.
 //! * `roms/test/acid2/dmg-acid2.gb` — run a fixed number of frames and
 //!   compare the framebuffer FNV-1a hash with `roms/test/acid2/expected.fnv`.
 //!
@@ -24,9 +34,11 @@
 //! Run everything:          `cargo test --release -p gb-core --test rom_suite`
 //! See per-ROM detail:      add `-- --nocapture`
 //! Run a single family:     `-- blargg` / `-- blargg_mem` / `-- mooneye` / `-- acid2`
+//!                           `-- mooneye_cgb` / `-- blargg_mem_cgb` / `-- cgb_acid2`
+//!                           `-- mealybug_dmg` / `-- mealybug_cgb`
 //! Skip a family (e.g. in CI without ROMs): set `GB_SKIP_ROMS=1`.
 
-use gb_core::{Emulator, StepResult};
+use gb_core::{Emulator, Model, StepResult};
 use std::fs;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
@@ -37,6 +49,7 @@ const FRAMES_PER_SECOND: u64 = 60;
 const BLARGG_BUDGET_FRAMES: u64 = 120 * FRAMES_PER_SECOND;
 const MOONEYE_BUDGET_FRAMES: u64 = 20 * FRAMES_PER_SECOND;
 const ACID2_FRAMES: u64 = 2 * FRAMES_PER_SECOND;
+const SCREENSHOT_BUDGET_FRAMES: u64 = 20 * FRAMES_PER_SECOND;
 
 fn roms_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -54,7 +67,7 @@ fn collect_roms(dir: &Path) -> Vec<PathBuf> {
         let path = entry.path();
         if path.is_dir() {
             out.extend(collect_roms(&path));
-        } else if path.extension().is_some_and(|e| e == "gb") {
+        } else if path.extension().is_some_and(|e| e == "gb" || e == "gbc") {
             out.push(path);
         }
     }
@@ -140,8 +153,8 @@ fn blargg_mem_text(emu: &Emulator) -> String {
 }
 
 /// Run a ROM to completion using Blargg's memory protocol.
-fn run_blargg_mem(rom: &[u8]) -> Outcome {
-    let mut emu = match Emulator::load(rom) {
+fn run_blargg_mem(rom: &[u8], model: Model) -> Outcome {
+    let mut emu = match Emulator::load_with_model(rom, model) {
         Ok(e) => e,
         Err(e) => return Outcome::Fail(format!("load error: {e}")),
     };
@@ -167,8 +180,8 @@ fn run_blargg_mem(rom: &[u8]) -> Outcome {
 }
 
 /// Run a ROM to completion using the Mooneye `LD B,B` protocol.
-fn run_mooneye(rom: &[u8]) -> Outcome {
-    let mut emu = match Emulator::load(rom) {
+fn run_mooneye(rom: &[u8], model: Model) -> Outcome {
+    let mut emu = match Emulator::load_with_model(rom, model) {
         Ok(e) => e,
         Err(e) => return Outcome::Fail(format!("load error: {e}")),
     };
@@ -199,6 +212,55 @@ fn run_mooneye(rom: &[u8]) -> Outcome {
     Outcome::Fail(format!("no LD B,B within {MOONEYE_BUDGET_FRAMES} frames"))
 }
 
+/// The bytes a frame hash covers: shades (DMG) or RGB555 little-endian (CGB).
+fn frame_bytes(emu: &Emulator) -> Vec<u8> {
+    match emu.model() {
+        Model::Dmg => emu.framebuffer().to_vec(),
+        Model::Cgb => gb_core::util::rgb555_bytes(emu.framebuffer_rgb555()),
+    }
+}
+
+/// Run to the `LD B,B` breakpoint and compare the last completed frame with
+/// the expected hash stored next to the ROM as `<stem>.fnv`.
+fn run_screenshot(path: &Path, rom: &[u8], model: Model) -> Outcome {
+    let expected_path = path.with_extension("fnv");
+    let expected = match fs::read_to_string(&expected_path)
+        .ok()
+        .and_then(|t| u64::from_str_radix(t.trim(), 16).ok())
+    {
+        Some(h) => h,
+        None => return Outcome::Fail(format!("missing or bad {}", expected_path.display())),
+    };
+    let mut emu = match Emulator::load_with_model(rom, model) {
+        Ok(e) => e,
+        Err(e) => return Outcome::Fail(format!("load error: {e}")),
+    };
+    let mut frames = 0u64;
+    let mut cycles_in_frame = 0u32;
+    while frames < SCREENSHOT_BUDGET_FRAMES {
+        match emu.step_instruction() {
+            StepResult::Ran(c) => {
+                cycles_in_frame += c;
+                if cycles_in_frame >= gb_core::CYCLES_PER_FRAME {
+                    cycles_in_frame -= gb_core::CYCLES_PER_FRAME;
+                    frames += 1;
+                }
+            }
+            StepResult::Breakpoint => {
+                let got = gb_core::util::fnv1a64(&frame_bytes(&emu));
+                return if got == expected {
+                    Outcome::Pass
+                } else {
+                    Outcome::Fail(format!("frame hash {got:016x}, expected {expected:016x}"))
+                };
+            }
+        }
+    }
+    Outcome::Fail(format!(
+        "no LD B,B within {SCREENSHOT_BUDGET_FRAMES} frames"
+    ))
+}
+
 /// Run dmg-acid2 and compare the frame hash.
 fn run_acid2(rom: &[u8], expected: u64) -> Outcome {
     let mut emu = match Emulator::load(rom) {
@@ -221,7 +283,7 @@ struct Summary {
     failed: Vec<(String, String)>,
 }
 
-fn run_family(family: &str, runner: impl Fn(&[u8]) -> Outcome) -> Option<Summary> {
+fn run_family(family: &str, runner: impl Fn(&Path, &[u8]) -> Outcome) -> Option<Summary> {
     if std::env::var_os("GB_SKIP_ROMS").is_some() {
         eprintln!("[{family}] skipped (GB_SKIP_ROMS set)");
         return None;
@@ -249,7 +311,7 @@ fn run_family(family: &str, runner: impl Fn(&[u8]) -> Outcome) -> Option<Summary
             .to_string();
         let bytes = fs::read(path).expect("read ROM");
         let t = Instant::now();
-        let outcome = run_guarded(&rel, || runner(&bytes));
+        let outcome = run_guarded(&rel, || runner(path, &bytes));
         let secs = t.elapsed().as_secs_f32();
         match outcome {
             Outcome::Pass => {
@@ -297,17 +359,63 @@ fn assert_all_passed(family: &str, summary: Option<Summary>) {
 
 #[test]
 fn blargg() {
-    assert_all_passed("blargg", run_family("blargg", run_blargg));
+    assert_all_passed("blargg", run_family("blargg", |_, rom| run_blargg(rom)));
 }
 
 #[test]
 fn blargg_mem() {
-    assert_all_passed("blargg-mem", run_family("blargg-mem", run_blargg_mem));
+    assert_all_passed(
+        "blargg-mem",
+        run_family("blargg-mem", |_, rom| run_blargg_mem(rom, Model::Dmg)),
+    );
 }
 
 #[test]
 fn mooneye() {
-    assert_all_passed("mooneye", run_family("mooneye", run_mooneye));
+    assert_all_passed(
+        "mooneye",
+        run_family("mooneye", |_, rom| run_mooneye(rom, Model::Dmg)),
+    );
+}
+
+#[test]
+fn mooneye_cgb() {
+    assert_all_passed(
+        "mooneye-cgb",
+        run_family("mooneye-cgb", |_, rom| run_mooneye(rom, Model::Cgb)),
+    );
+}
+
+#[test]
+fn blargg_mem_cgb() {
+    assert_all_passed(
+        "blargg-mem-cgb",
+        run_family("blargg-mem-cgb", |_, rom| run_blargg_mem(rom, Model::Cgb)),
+    );
+}
+
+#[test]
+fn cgb_acid2() {
+    assert_all_passed(
+        "cgb-acid2",
+        run_family("cgb-acid2", |p, rom| run_screenshot(p, rom, Model::Cgb)),
+    );
+}
+
+#[test]
+fn mealybug_dmg() {
+    assert_all_passed(
+        "mealybug-dmg",
+        run_family("mealybug-dmg", |p, rom| run_screenshot(p, rom, Model::Dmg)),
+    );
+}
+
+#[test]
+fn mealybug_cgb() {
+    assert_all_passed(
+        "mealybug-cgb",
+        run_family("mealybug-cgb", |p, rom| run_screenshot(p, rom, Model::Cgb)),
+    );
 }
 
 #[test]

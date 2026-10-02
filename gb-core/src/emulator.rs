@@ -7,13 +7,15 @@
 use crate::cpu::{Cpu, Registers};
 use crate::joypad::Buttons;
 use crate::mmu::Mmu;
-use crate::{cartridge::Cartridge, LoadError, CYCLES_PER_FRAME, FRAME_PIXELS};
+use crate::{cartridge::Cartridge, LoadError, CYCLES_PER_FRAME};
 
 /// Outcome of executing one instruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepResult {
-    /// Instruction executed; carries the number of T-cycles it took (already
-    /// applied to the peripherals by the CPU's bus accesses).
+    /// Instruction executed; carries the time it took in master-clock
+    /// T-cycles (4 per M-cycle at normal speed, 2 per M-cycle in CGB
+    /// double-speed mode), already applied to the peripherals by the CPU's
+    /// bus accesses.
     Ran(u32),
     /// The CPU executed `LD B,B` (opcode 0x40, 4 T-cycles, already ticked).
     /// Test ROMs from the Mooneye suite use this as a software breakpoint to
@@ -21,28 +23,60 @@ pub enum StepResult {
     Breakpoint,
 }
 
-/// A complete DMG system.
+/// Which console is emulated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Model {
+    /// Original Game Boy (DMG). The model the initial brief asks for.
+    Dmg,
+    /// Game Boy Color running in CGB mode (colour palettes, VRAM/WRAM banks,
+    /// HDMA, double speed). Not part of the initial requirements; the API is
+    /// here so the harness can address it if the scope grows.
+    Cgb,
+}
+
+impl Model {
+    /// The model a cartridge asks for: CGB if header byte 0x143 has bit 7 set
+    /// (0x80 = works on both, 0xC0 = CGB only), otherwise DMG.
+    pub fn for_rom(rom: &[u8]) -> Model {
+        match rom.get(0x143) {
+            Some(flag) if flag & 0x80 != 0 => Model::Cgb,
+            _ => Model::Dmg,
+        }
+    }
+}
+
+/// A complete Game Boy system.
 pub struct Emulator {
     cpu: Cpu,
     mmu: Mmu,
-    /// 160×144 shades, one byte per pixel, values 0 (white) ..= 3 (black).
-    framebuffer: Vec<u8>,
+    model: Model,
     frames: u64,
 }
 
 impl Emulator {
-    /// Build a system around the given ROM image.
+    /// Build a DMG system around the given ROM image (same as
+    /// `load_with_model(rom, Model::Dmg)`).
     ///
     /// No boot ROM is run: the CPU and I/O registers start in the state the
-    /// DMG boot ROM leaves them in (see `DECISIONS.md`, D3).
+    /// boot ROM leaves them in (see `DECISIONS.md`, D3).
     pub fn load(rom: &[u8]) -> Result<Self, LoadError> {
+        Self::load_with_model(rom, Model::Dmg)
+    }
+
+    /// Build a system of the given model around the ROM image.
+    pub fn load_with_model(rom: &[u8], model: Model) -> Result<Self, LoadError> {
         let cart = Cartridge::from_bytes(rom)?;
         Ok(Self {
-            cpu: Cpu::post_boot(),
-            mmu: Mmu::new(cart),
-            framebuffer: vec![0; FRAME_PIXELS],
+            cpu: Cpu::post_boot(model),
+            mmu: Mmu::new(cart, model),
+            model,
             frames: 0,
         })
+    }
+
+    /// The model this system emulates.
+    pub fn model(&self) -> Model {
+        self.model
     }
 
     /// Execute exactly one instruction (plus any interrupt dispatch that
@@ -52,8 +86,9 @@ impl Emulator {
         self.cpu.step(&mut self.mmu)
     }
 
-    /// Run until one full frame (70 224 T-cycles) has elapsed and copy the
-    /// PPU output into [`Self::framebuffer`].
+    /// Run until one full frame (70 224 T-cycles of the 4 MiHz master clock;
+    /// in CGB double-speed mode the CPU executes twice as many of its own
+    /// cycles in that time — see `StepResult::Ran`) has elapsed.
     ///
     /// Returns `true` if a `LD B,B` breakpoint was hit during the frame.
     pub fn step_frame(&mut self) -> bool {
@@ -70,14 +105,21 @@ impl Emulator {
                 }
             }
         }
-        self.framebuffer.copy_from_slice(self.mmu.ppu.framebuffer());
         self.frames += 1;
         hit_breakpoint
     }
 
-    /// The most recently completed frame, 160×144 bytes, row-major, shade 0..=3.
+    /// The most recently completed frame, 160×144 bytes, row-major, shade
+    /// 0..=3 (DMG). In CGB mode use [`Self::framebuffer_rgb555`].
     pub fn framebuffer(&self) -> &[u8] {
-        &self.framebuffer
+        self.mmu.ppu.framebuffer()
+    }
+
+    /// The most recently completed frame as 160×144 RGB555 pixels
+    /// (`r | g << 5 | b << 10`, 5 bits each). Valid in both modes; in DMG
+    /// mode the four shades map to 0x7FFF, 0x56B5, 0x294A, 0x0000.
+    pub fn framebuffer_rgb555(&self) -> &[u16] {
+        self.mmu.ppu.framebuffer_rgb555()
     }
 
     /// Number of frames completed since load.

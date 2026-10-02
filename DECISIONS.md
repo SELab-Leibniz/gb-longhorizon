@@ -81,6 +81,25 @@ frozen. Product code adapts to them, not the other way round.
 **Why.** They define the acceptance interface. Changing them to make a
 failing test pass would make the test meaningless.
 
+## D7 — Game Boy Color: model selection, double speed, colour output
+
+**Decision.** The caller picks the model: `Emulator::load_with_model(rom,
+Model)`, or `gb --model dmg|cgb|auto` (`auto` = CGB when cartridge header
+byte 0x143 has bit 7 set). `Model::Cgb` means a Game Boy Color running a
+CGB-capable cartridge **in CGB mode**; cartridges without the CGB flag run
+on `Model::Dmg` (CGB "compatibility mode" with its boot-ROM palettes is not
+emulated). Post-boot CGB state: AF=1180 BC=0000 DE=FF56 HL=000D SP=FFFE,
+KEY1=0 (normal speed), VBK=0, SVBK=1. Double speed (KEY1 armed + `STOP`):
+the CPU, DIV, timer and serial run at 2× while the PPU, APU and HBlank DMA
+keep real time; `StepResult::Ran` and `step_frame` always count real time in
+4 MiHz master-clock T-cycles. Colour output is the raw RGB555 palette value
+(`framebuffer_rgb555`), with no colour correction.
+
+**Why.** Model selection by the caller keeps runs reproducible and lets the
+same dual-mode cartridge be tested on both consoles. Raw RGB555 is what test
+references (cgb-acid2, Mealybug Tearoom) are defined against, and hashing it
+is palette-independent.
+
 ---
 
 <!-- Add new decisions below. Format: ## Dn — title / Decision / Why / Consequence -->

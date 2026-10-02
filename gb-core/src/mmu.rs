@@ -24,6 +24,7 @@
 
 use crate::apu::Apu;
 use crate::cartridge::Cartridge;
+use crate::emulator::Model;
 use crate::emulator::StateError;
 use crate::interrupts::Interrupts;
 use crate::joypad::Joypad;
@@ -32,7 +33,16 @@ use crate::serial::Serial;
 use crate::timer::Timer;
 
 /// The system bus and everything hanging off it.
+///
+/// CGB mode adds (Pan Docs "CGB Registers"): KEY1 speed switch (FF4D, armed
+/// here, performed by `STOP`), VBK VRAM bank (FF4F, in the PPU), SVBK WRAM
+/// bank 1–7 (FF70), HDMA1–5 general/HBlank DMA (FF51–FF55), RP (FF56, may be
+/// stubbed), and OPRI (FF6C, in the PPU). In double-speed mode the CPU, DIV,
+/// timer and serial run twice as fast while PPU and APU keep real time
+/// (DECISIONS.md D7).
 pub struct Mmu {
+    /// Which console the bus belongs to.
+    pub model: Model,
     /// Game cartridge (ROM + optional RAM, behind an MBC).
     pub cartridge: Cartridge,
     /// Pixel processing unit (also owns VRAM and OAM).
@@ -47,7 +57,7 @@ pub struct Mmu {
     pub serial: Serial,
     /// IF / IE registers.
     pub interrupts: Interrupts,
-    /// 8 KiB work RAM.
+    /// Work RAM: 8 KiB on DMG, 32 KiB (8 banks of 4 KiB) on CGB.
     pub wram: Vec<u8>,
     /// 127 bytes high RAM.
     pub hram: Vec<u8>,
@@ -55,16 +65,17 @@ pub struct Mmu {
 
 impl Mmu {
     /// Assemble a bus with I/O registers in their post-boot-ROM state.
-    pub fn new(cartridge: Cartridge) -> Self {
+    pub fn new(cartridge: Cartridge, model: Model) -> Self {
         Self {
+            model,
             cartridge,
-            ppu: Ppu::new(),
+            ppu: Ppu::new(model),
             apu: Apu::new(),
             timer: Timer::new(),
             joypad: Joypad::new(),
             serial: Serial::new(),
             interrupts: Interrupts::new(),
-            wram: vec![0; 0x2000],
+            wram: vec![0; if model == Model::Cgb { 0x8000 } else { 0x2000 }],
             hram: vec![0; 0x7F],
         }
     }
@@ -94,7 +105,8 @@ impl Mmu {
     }
 
     /// One CPU M-cycle with no bus access (internal delay, e.g. the extra
-    /// cycle of `PUSH`, a taken `JR`, or 16-bit `INC`).
+    /// cycle of `PUSH`, a taken `JR`, or 16-bit `INC`). Written for normal
+    /// speed; CGB double speed halves the real time of an M-cycle (D7).
     pub fn idle_cycle(&mut self) {
         self.tick(4);
     }

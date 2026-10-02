@@ -43,7 +43,7 @@ pub mod timer;
 pub mod util;
 
 pub use cartridge::LoadError;
-pub use emulator::{Emulator, StepResult};
+pub use emulator::{Emulator, Model, StepResult};
 pub use joypad::Buttons;
 
 /// LCD width in pixels.

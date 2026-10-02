@@ -7,7 +7,11 @@
 //! gb --rom GAME.gb [--frames N] [--input-script FILE] [--dump-frame PATH]
 //!    [--dump-every N --dump-dir DIR] [--serial-stdout] [--hash]
 //!    [--mooneye] [--blargg-mem] [--save-state PATH] [--load-state PATH]
+//!    [--model dmg|cgb|auto]
 //! ```
+//!
+//! DMG frames are 2-bit shades (PGM dumps, hash over the shade bytes); CGB
+//! frames are RGB555 (PPM dumps, hash over the little-endian u16 pixels).
 //!
 //! Exit codes: 0 ok · 1 usage/IO error · 2 emulator panic ·
 //! 10 Mooneye pass · 11 Mooneye fail (only with --mooneye) ·
@@ -22,8 +26,8 @@
 //! Frames are absolute, must be ascending. Buttons stay held until the next
 //! line. Names: UP DOWN LEFT RIGHT A B SELECT START (case-insensitive).
 
-use gb_core::util::{fnv1a64, framebuffer_to_pgm};
-use gb_core::{Buttons, Emulator, StepResult, SCREEN_HEIGHT, SCREEN_WIDTH};
+use gb_core::util::{fnv1a64, framebuffer_rgb555_to_ppm, framebuffer_to_pgm, rgb555_bytes};
+use gb_core::{Buttons, Emulator, Model, StepResult, SCREEN_HEIGHT, SCREEN_WIDTH};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -40,6 +44,7 @@ struct Args {
     hash: bool,
     mooneye: bool,
     blargg_mem: bool,
+    model: String,
     save_state: Option<PathBuf>,
     load_state: Option<PathBuf>,
 }
@@ -55,6 +60,7 @@ usage: gb --rom FILE [options]
   --hash               print FNV-1a hash of each dumped frame + final frame
   --mooneye            stop at LD B,B; exit 10 on pass, 11 on fail
   --blargg-mem         stop when a Blargg ROM reports via $A000; exit 20 pass, 21 fail
+  --model M            dmg (default), cgb, or auto (CGB if the cartridge supports it)
   --save-state PATH    write save state after the run
   --load-state PATH    restore save state before the run
 ";
@@ -71,6 +77,7 @@ fn parse_args() -> Result<Args, String> {
         hash: false,
         mooneye: false,
         blargg_mem: false,
+        model: "dmg".to_string(),
         save_state: None,
         load_state: None,
     };
@@ -104,6 +111,7 @@ fn parse_args() -> Result<Args, String> {
             "--hash" => a.hash = true,
             "--mooneye" => a.mooneye = true,
             "--blargg-mem" => a.blargg_mem = true,
+            "--model" => a.model = value("--model")?,
             "--save-state" => a.save_state = Some(value("--save-state")?.into()),
             "--load-state" => a.load_state = Some(value("--load-state")?.into()),
             "-h" | "--help" => return Err(USAGE.to_string()),
@@ -152,19 +160,47 @@ fn parse_input_script(path: &Path) -> Result<Vec<(u64, Buttons)>, String> {
     Ok(out)
 }
 
-fn write_pgm(path: &Path, fb: &[u8]) -> Result<(), String> {
+/// The bytes a frame hash is computed over: shades (DMG) or RGB555 LE (CGB).
+fn frame_bytes(emu: &Emulator) -> Vec<u8> {
+    match emu.model() {
+        Model::Dmg => emu.framebuffer().to_vec(),
+        Model::Cgb => rgb555_bytes(emu.framebuffer_rgb555()),
+    }
+}
+
+/// File extension for frame dumps: PGM (DMG shades) or PPM (CGB colour).
+fn frame_ext(emu: &Emulator) -> &'static str {
+    match emu.model() {
+        Model::Dmg => "pgm",
+        Model::Cgb => "ppm",
+    }
+}
+
+fn write_frame(path: &Path, emu: &Emulator) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
     }
-    fs::write(path, framebuffer_to_pgm(fb, SCREEN_WIDTH, SCREEN_HEIGHT))
-        .map_err(|e| format!("{}: {e}", path.display()))
+    let data = match emu.model() {
+        Model::Dmg => framebuffer_to_pgm(emu.framebuffer(), SCREEN_WIDTH, SCREEN_HEIGHT),
+        Model::Cgb => {
+            framebuffer_rgb555_to_ppm(emu.framebuffer_rgb555(), SCREEN_WIDTH, SCREEN_HEIGHT)
+        }
+    };
+    fs::write(path, data).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn run(args: Args) -> Result<u8, String> {
     let rom = fs::read(&args.rom).map_err(|e| format!("{}: {e}", args.rom.display()))?;
-    let mut emu = Emulator::load(&rom).map_err(|e| format!("{}: {e}", args.rom.display()))?;
+    let model = match args.model.as_str() {
+        "dmg" => Model::Dmg,
+        "cgb" => Model::Cgb,
+        "auto" => Model::for_rom(&rom),
+        other => return Err(format!("--model must be dmg, cgb or auto (got `{other}`)")),
+    };
+    let mut emu = Emulator::load_with_model(&rom, model)
+        .map_err(|e| format!("{}: {e}", args.rom.display()))?;
 
     if let Some(p) = &args.load_state {
         let state = fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
@@ -210,6 +246,17 @@ fn run(args: Args) -> Result<u8, String> {
                             if pass { "PASS" } else { "FAIL" }
                         )
                         .ok();
+                        // Screenshot-based tests (Mealybug Tearoom, cgb-acid2)
+                        // compare the last completed frame at this breakpoint.
+                        writeln!(
+                            out,
+                            "mooneye: frame-hash {:016x}",
+                            fnv1a64(&frame_bytes(&emu))
+                        )
+                        .ok();
+                        if let Some(p) = &args.dump_frame {
+                            write_frame(p, &emu)?;
+                        }
                         exit = if pass { 10 } else { 11 };
                         done = true;
                         break;
@@ -257,14 +304,16 @@ fn run(args: Args) -> Result<u8, String> {
 
         if let Some(every) = args.dump_every {
             if every > 0 && (frame + 1) % every == 0 {
-                let path = args.dump_dir.join(format!("frame_{:06}.pgm", frame + 1));
-                write_pgm(&path, emu.framebuffer())?;
+                let path =
+                    args.dump_dir
+                        .join(format!("frame_{:06}.{}", frame + 1, frame_ext(&emu)));
+                write_frame(&path, &emu)?;
                 if args.hash {
                     writeln!(
                         out,
                         "frame {:06} {:016x}",
                         frame + 1,
-                        fnv1a64(emu.framebuffer())
+                        fnv1a64(&frame_bytes(&emu))
                     )
                     .ok();
                 }
@@ -293,10 +342,10 @@ fn run(args: Args) -> Result<u8, String> {
     }
 
     if let Some(p) = &args.dump_frame {
-        write_pgm(p, emu.framebuffer())?;
+        write_frame(p, &emu)?;
     }
     if args.hash {
-        writeln!(out, "final {:016x}", fnv1a64(emu.framebuffer())).ok();
+        writeln!(out, "final {:016x}", fnv1a64(&frame_bytes(&emu))).ok();
     }
     if let Some(p) = &args.save_state {
         fs::write(p, emu.save_state()).map_err(|e| format!("{}: {e}", p.display()))?;

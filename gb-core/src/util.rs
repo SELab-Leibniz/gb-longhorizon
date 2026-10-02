@@ -11,6 +11,26 @@ pub fn fnv1a64(bytes: &[u8]) -> u64 {
         .fold(OFFSET, |h, &b| (h ^ u64::from(b)).wrapping_mul(PRIME))
 }
 
+/// Little-endian bytes of an RGB555 framebuffer — what CGB-mode frame hashes
+/// are computed over (`fnv1a64(&rgb555_bytes(fb))`).
+pub fn rgb555_bytes(fb: &[u16]) -> Vec<u8> {
+    fb.iter().flat_map(|p| p.to_le_bytes()).collect()
+}
+
+/// Encode an RGB555 framebuffer as binary PPM (P6), each 5-bit channel
+/// expanded to 8 bits as `(c << 3) | (c >> 2)`.
+pub fn framebuffer_rgb555_to_ppm(fb: &[u16], width: usize, height: usize) -> Vec<u8> {
+    debug_assert_eq!(fb.len(), width * height);
+    let mut out = format!("P6\n{width} {height}\n255\n").into_bytes();
+    for &p in fb {
+        for shift in [0, 5, 10] {
+            let c = ((p >> shift) & 31) as u8;
+            out.push((c << 3) | (c >> 2));
+        }
+    }
+    out
+}
+
 /// Encode a 160×144 shade buffer as binary PGM (P5), 0 = black … 255 = white,
 /// so frames can be opened by any image viewer without a PNG dependency.
 pub fn framebuffer_to_pgm(fb: &[u8], width: usize, height: usize) -> Vec<u8> {
