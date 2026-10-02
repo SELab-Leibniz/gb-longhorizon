@@ -17,3 +17,7 @@ similarity-*.zip
 *.pgm
 *.state
 __pycache__/
+
+# Reference emulator build (cloned/built by harness/ref/build.sh)
+/harness/ref/sameboy-src/
+/harness/ref/bin/

@@ -23,6 +23,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROMS = HERE.parent.parent / "roms"
+SAMPLE_EVERY = 60   # compare one frame per second of emulated time
+ALIGN_WINDOW = 2    # ± frames of slack between reference and agent frame numbering
 
 
 def sh(cmd, cwd, timeout=None, env=None):
@@ -123,23 +125,30 @@ def tier3(co, golden):
         if not gold.exists() or not script.exists():
             games[name] = {"status": "no-golden"}
             continue
-        expected = dict(line.split() for line in gold.read_text().split("\n") if line.strip())
-        frames = max(int(k) for k in expected)
+        # Golden: every frame's hash from the reference emulator (make_golden.sh).
+        expected = {int(k): v for k, v in (line.split() for line in gold.read_text().split("\n") if line.strip())}
+        frames = max(expected)
         with tempfile.TemporaryDirectory() as td:
             code, out, err, secs = sh(
                 [gb(co), "--rom", str(rom), "--frames", str(frames), "--input-script", str(script),
-                 "--dump-every", "60", "--dump-dir", td, "--hash"],
+                 "--dump-every", str(SAMPLE_EVERY), "--dump-dir", td, "--hash"],
                 co, timeout=900,
             )
         if code == 2:
             games[name] = {"status": "panic", "detail": err[-500:]}
             continue
-        got = dict(re.findall(r"frame (\d+) ([0-9a-f]{16})", out))
-        got = {str(int(k)): v for k, v in got.items()}
-        matched = sum(1 for k, v in expected.items() if got.get(k) == v)
-        rate = matched / len(expected) if expected else 0.0
+        got = {int(k): v for k, v in re.findall(r"frame (\d+) ([0-9a-f]{16})", out)}
+        # Two emulators agree on frame boundaries only to ±1–2 frames, so an
+        # agent frame counts as matched if its hash appears in the golden
+        # window around the same frame number.
+        sampled = [n for n in range(SAMPLE_EVERY, frames + 1, SAMPLE_EVERY)]
+        matched = sum(
+            1 for n in sampled
+            if n in got and got[n] in {expected.get(n + d) for d in range(-ALIGN_WINDOW, ALIGN_WINDOW + 1)}
+        )
+        rate = matched / len(sampled) if sampled else 0.0
         games[name] = {"status": "pass" if rate >= 0.95 else "fail", "match_rate": round(rate, 3),
-                       "matched": matched, "total": len(expected), "secs": round(secs, 1)}
+                       "matched": matched, "total": len(sampled), "secs": round(secs, 1)}
     passed = sum(1 for g in games.values() if g["status"] == "pass")
     return {"passed": passed, "total": len(games), "games": games}
 
