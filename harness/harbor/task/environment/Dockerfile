@@ -83,14 +83,16 @@ RUN mkdir -p /opt/gb-agents && cp -r /work/harness/agents/icode /work/harness/ag
 
 # ---- strip the harness and reset history ------------------------------------
 # The agent must never see harness/ (hidden spec, goldens, grader) and its
-# git log should start at the scaffold.
+# git log should start at the scaffold. Scaffold commits are authored
+# "Scaffold"; the repo default identity is "Coding Agent", so every commit
+# the agent makes is attributable in git-log.txt.
 RUN cp harness/QUESTIONS_SEED.md /work/QUESTIONS.md \
     && rm -rf /work/harness /work/.github \
     && git init -q \
-    && git config user.email "scaffold@example.invalid" \
-    && git config user.name "Scaffold" \
     && git add -A \
-    && git commit -q -m "Initial scaffold" \
+    && git -c user.email=scaffold@example.invalid -c user.name=Scaffold commit -q -m "Initial scaffold" \
+    && git config user.email "agent@example.invalid" \
+    && git config user.name "Coding Agent" \
     && git config --global --add safe.directory /work
 
 ENV CARGO_NET_OFFLINE=true
