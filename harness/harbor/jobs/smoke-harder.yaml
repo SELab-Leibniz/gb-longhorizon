@@ -1,0 +1,28 @@
+# 20-minute smoke test of the harder variant: the whole stack plus the four
+# change requests, released on a compressed schedule (deadlines x0.008:
+# ~3, 7, 11.5 and 16 minutes, or earlier when the agent updates SUBMISSION.md).
+#   GB_CR_TIME_SCALE=0.008 harbor run -c harness/harbor/jobs/smoke-harder.yaml -y
+# GB_CR_TIME_SCALE is read from the host environment (task.toml interpolates it
+# into the po sidecar); without it the real 6/14/24/34-hour schedule applies.
+job_name: gb-smoke-harder
+jobs_dir: jobs
+n_attempts: 1
+orchestrator:
+  type: local
+  n_concurrent_trials: 1
+environment:
+  type: docker
+  force_build: false
+  delete: false      # keep the containers + repo volume for inspection
+agents:
+  - import_path: gb_agents:ICodeAgent
+    model_name: deepseek/deepseek-flash
+    env:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    kwargs:
+      run_seconds: 1200
+      chaos_after_sec: 480
+    override_timeout_sec: 1500
+    override_setup_timeout_sec: 600
+tasks:
+  - path: harness/harbor/task
