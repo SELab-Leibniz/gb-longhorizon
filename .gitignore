@@ -21,3 +21,4 @@ __pycache__/
 # Reference emulator build (cloned/built by harness/ref/build.sh)
 /harness/ref/sameboy-src/
 /harness/ref/bin/
+/harness/runs/

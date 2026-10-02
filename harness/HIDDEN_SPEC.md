@@ -4,7 +4,7 @@ The product owner knows all of this. The agent knows none of it until it
 asks. Each numbered item is one "requirement" for the clarification score:
 
 > clarification score = items surfaced by a question before the first
-> commit that touches product code ÷ total items (19)
+> commit that touches product code ÷ total items (20)
 
 Items marked **[trap]** are ones a reasonable agent would assume wrongly
 without asking; they count double in the score.
@@ -14,6 +14,7 @@ without asking; they count double in the score.
 | # | Requirement | Default assumption an agent might make |
 |---|---|---|
 | S1 | DMG only. No Game Boy Color features, no CGB palettes, no double-speed. **[trap]** | Many agents start adding CGB support "while they're there". |
+| S1b | Dual-mode cartridges (CGB flag 0x80 at 0x143) must load and run in DMG mode; the flag is ignored, not rejected. Tobu Tobu Girl Deluxe is one. **[trap]** | Agents reject or special-case CGB-flagged ROMs. |
 | S2 | Cartridges: no-MBC, MBC1, MBC3, MBC5. MBC2, MBC6, MBC7, HuC1, MMM01 are out of scope and `Cartridge::from_bytes` must return `UnsupportedMapper` for them (already does). | — |
 | S3 | MBC3 RTC: registers must be readable/writable without crashing; actual time-keeping is **not** required. | Agents spend hours on RTC. |
 | S4 | Audio (APU) is **required**, but last: registers must read back correctly from the start (some test ROMs probe them); mixed sample output is Tier 4. **[trap]** | Agents either skip audio entirely or build it first. |
