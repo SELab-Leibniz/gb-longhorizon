@@ -21,7 +21,7 @@ ARG JW_COMMIT=main
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git ca-certificates curl unzip python3 python3-yaml ripgrep procps \
+        git ca-certificates curl unzip cmake build-essential python3 python3-yaml ripgrep procps \
     && rm -rf /var/lib/apt/lists/* \
     && rustup component add rustfmt clippy
 
