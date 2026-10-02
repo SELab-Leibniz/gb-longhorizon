@@ -12,11 +12,36 @@ task's own compose file:
 | Product owner answering `QUESTIONS.md` | `po` sidecar shares the `/work` volume, holds the hidden spec and its own API key, has normal internet. The agent container never sees either. |
 | Periodic snapshots | same `po` sidecar bundles the repo every `GB_SNAPSHOT_HOURS`; collected as a trial artifact; graded post hoc with `scripts/grade_snapshots.sh`. |
 | Chaos kill at hour 20 | inside the agent adapters (`GB_CHAOS_AFTER_SEC`), since Harbor has no mid-run hook. |
+| Change requests (harder variant) | the `po` sidecar releases CR-1…CR-4 (`harness/change_requests/schedule.json`) into `/work`: each one's text is appended to `CHANGE_REQUESTS.md` and its assets (ROMs, specs) are copied in, when the agent rewrites `SUBMISSION.md` or at its deadline (6 / 14 / 24 / 34 h; `GB_CR_TIME_SCALE` compresses this for smoke tests). The PO learns what is released from its own record, never from the agent-editable file. |
+
+### The harder variant (branch `harder-task`)
+
+The base task (finish a DMG emulator) is what an agent does in the first
+hours; four change requests then extend the scope mid-run:
+
+| CR | Scope | Graded by (tier) | Weight |
+|---|---|---|---|
+| — | base DMG emulator (CPU, timing, PPU, MBC, APU, games, save states) | 0–4 | 0.40 |
+| CR-1 | Game Boy Color: double speed, banks, HDMA, palettes | 5: Mooneye-CGB, cgb-acid2, 10 CGB games, `cgb_sound` | 0.20 |
+| CR-2 | pixel-accurate PPU (FIFO, mid-scanline changes) | 6: Mealybug Tearoom DMG, Mooneye `ppu/`, `oam_bug` | 0.10 |
+| CR-3 | `gb-tools`: `gb-trace` (Gameboy Doctor format + profiler), `gb-server` HTTP debugger API | 7: trace vs reference block hashes for all 11 `cpu_instrs` ROMs, profile top-20, hidden 36-check API suite | 0.17 |
+| CR-4 | `gb-core` `no_std` (thumbv7em) + `gb-wasm` with a fixed ABI | 8: embedded build, Node runs the wasm and must match native frame hashes | 0.10 |
+| — | clippy + rustfmt clean | 0 | 0.03 |
+
+`reward.json` also reports a `phase_*` sub-score per row. Every check was
+validated against a reference before use: SameBoy (through a `gb` shim)
+scores 47/47 Mooneye-CGB, cgb-acid2, 11/11 CGB games under unseen timing
+perturbations (dead joypad 0/11) and 10/24 Mealybug (so CR-2 rewards
+partial progress); a replayed reference trace scores 1.0; a spec-following
+fake server scores 36/36 and each injected bug is caught. The verifier's
+ROMs and CR assets are pristine copies from `scripts/build_assets.sh`
+(`harness/.assets/`, built once in Docker; `sync.sh` runs it if missing),
+uploaded to `/tests` only after the agent has stopped.
 
 ```
 harness/harbor/
   task/
-    task.toml                 48 h agent timeout, 90 min verifier, 4 CPU / 16 GB, artifacts from sidecars
+    task.toml                 48 h agent timeout, 150 min verifier, 4 CPU / 16 GB, artifacts from sidecars
     instruction.md            staged from harness/AGENT_BRIEF.md (the thin brief)
     environment/
       Dockerfile              rust + scaffold @ pinned commit + assets + vendored crates + both agents
@@ -80,11 +105,13 @@ jiuwenswarm's default branch is `develop` — its `main` is an older project).
 
 ```sh
 harbor run -c harness/harbor/jobs/smoke.yaml -y
+# harder variant: all four change requests released within the 20 minutes
+GB_CR_TIME_SCALE=0.008 harbor run -c harness/harbor/jobs/smoke-harder.yaml -y
 ```
 
 Checks, in `jobs/gb-smoke/<trial>/`:
 - `agent/icode.txt` and `agent/trajectory/icode_adapter.jsonl` — invocations with `rc: 0`, a `chaos.kill` line at ~8 min and a resume after it
-- `artifacts/po-artifacts/events.jsonl` — `po.answered` lines if the agent asked anything; `snapshot` lines
+- `artifacts/po-artifacts/events.jsonl` — `po.answered` lines if the agent asked anything; `snapshot` lines; (harder) one `cr.released` line per change request with its trigger (`submission` or `deadline`) and file count, then `cr.all_released`
 - `artifacts/var/log/tinyproxy/tinyproxy.log` — only `api.deepseek.com` CONNECTs succeed; anything else shows as filtered
 - `verifier/reward.json` — all metrics present (mostly 0 after 20 minutes, that's fine), `verifier/grade-summary.txt`
 - `verifier/screenshots/index.html` — open it in a browser: every game and acid2 booted on the agent's emulator, agent vs SameBoy side by side, with a loaded / panic / blank status per ROM
@@ -122,7 +149,7 @@ jobs/<job>/<task>__<id>/
     reward.json results.json grade-summary.txt git-log.txt SUBMISSION.md QUESTIONS.md
     screenshots/index.html, summary.json, <rom>/agent_*.png, <rom>/compare_*.png
   artifacts/
-    po-artifacts/events.jsonl       PO answers, snapshots
+    po-artifacts/events.jsonl       PO answers, snapshots, change-request releases
     po-artifacts/po_log.jsonl       every Q/A with hidden-spec items + before-first-commit flag
     po-artifacts/snapshots/*.bundle 2-hourly repo state
     var/log/tinyproxy/tinyproxy.log every egress attempt
