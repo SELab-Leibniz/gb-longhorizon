@@ -49,12 +49,14 @@ from jiuwenswarm_sdk.client import Client  # noqa: E402
 
 CONTINUE_PROMPT = (
     "Continue working on the task in TASK.md. First check QUESTIONS.md for new answers "
-    "from the product owner and git log / test results for the current state. Keep going "
-    "until everything is complete and verified; say DONE only then."
+    "from the product owner, CHANGE_REQUESTS.md (if present) for new or changed requirements, "
+    "and git log / test results for the current state. Keep going until everything is "
+    "complete and verified; say DONE only then."
 )
 RECHECK_PROMPT = (
-    "Re-verify the project against TASK.md: run the full test suite, fix any regressions, "
-    "and look for remaining gaps. If everything passes and nothing is left, say DONE."
+    "Re-verify the project against TASK.md and CHANGE_REQUESTS.md (if present): look for new "
+    "change requests or product-owner answers, run the full test suite, fix any regressions, "
+    "and close remaining gaps. If everything passes and nothing is left, say DONE."
 )
 PROTOCOL = """
 Long-running task protocol: there is no human watching. You will be re-invoked with
@@ -276,6 +278,8 @@ def main():
         events_path = TRAJ / f"jw_events_{int(time.time())}.jsonl"
         CURRENT["session"] = session
         STREAM_COUNTS.clear()
+        sub = WORK / "SUBMISSION.md"
+        sub_before = sub.stat().st_mtime if sub.exists() else 0.0
         try:
             result = asyncio.run(one_run(session, prompt, events_path))
         except Exception as e:  # transport/protocol errors, or the child was killed
@@ -286,7 +290,10 @@ def main():
             session = sid
             STATE.write_text(session)
         output = str(result.get("output") or "")
-        last_done = "DONE" in output or (WORK / "SUBMISSION.md").exists()
+        # "Done" = DONE in the answer, or SUBMISSION.md (re)written during THIS
+        # invocation; one left over from an earlier phase does not count.
+        sub_after = sub.stat().st_mtime if sub.exists() else 0.0
+        last_done = "DONE" in output or sub_after != sub_before
         ok = result.get("exit_code") == 0
         log("invocation.end", status=result.get("status"), exit_code=result.get("exit_code"),
             session=session, session_recovered=recovered, done=last_done, usage=result.get("usage"),
@@ -303,7 +310,7 @@ def main():
                 time.sleep(10 * fail_streak)
             continue
         fail_streak = 0
-        time.sleep(int(os.environ.get("JW_CONTINUE_SLEEP_SEC", "600")) if last_done else 5)
+        time.sleep(int(os.environ.get("JW_CONTINUE_SLEEP_SEC", "180")) if last_done else 5)
 
 
 if __name__ == "__main__":

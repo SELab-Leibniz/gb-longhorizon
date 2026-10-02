@@ -46,8 +46,8 @@ log() { printf '{"t":%s,"event":"%s"%s}\n' "$(date +%s)" "$1" "${2:-}" >> "$LOG"
 "$PY" "$HERE/make_profile.py" --home "$HOME" \
       --provider "$ICODE_PROVIDER" --model "$ICODE_MODEL" ${ICODE_BASE_URL:+--base-url "$ICODE_BASE_URL"}
 
-CONTINUE_PROMPT='Continue working on the task in TASK.md. First check QUESTIONS.md for new answers from the product owner and git log / test results for the current state. Keep going until everything is complete and verified; say DONE only then.'
-RECHECK_PROMPT='Re-verify the project against TASK.md: run the full test suite, fix any regressions, and look for remaining gaps. If everything passes and nothing is left, say DONE.'
+CONTINUE_PROMPT='Continue working on the task in TASK.md. First check QUESTIONS.md for new answers from the product owner, CHANGE_REQUESTS.md (if present) for new or changed requirements, and git log / test results for the current state. Keep going until everything is complete and verified; say DONE only then.'
+RECHECK_PROMPT='Re-verify the project against TASK.md and CHANGE_REQUESTS.md (if present): look for new change requests or product-owner answers, run the full test suite, fix any regressions, and close remaining gaps. If everything passes and nothing is left, say DONE.'
 
 # ---- process control ---------------------------------------------------
 # iCode renames its process (it shows up as "chrys"), so never match by name:
@@ -104,6 +104,7 @@ log "adapter.start" ",\"arm\":\"${GB_ARM:-}\",\"resume_session\":\"$session\""
 
 while true; do
   out="$GB_TRAJECTORY_DIR/run_$(date +%s).json"
+  sub_before="$(stat -c %Y "$WORK/SUBMISSION.md" 2>/dev/null || echo 0)"
   if [[ -z "$session" ]]; then
     "$ICODE" run --task TASK.md -a LongRun -m gbmodel00001 -C "$WORK" --json > "$out" 2>> "$GB_TRAJECTORY_DIR/icode_stderr.log" &
   else
@@ -126,7 +127,10 @@ except Exception: print("")' "$out")"
     new_session="$(latest_session)"; [[ -n "$new_session" ]] && recovered=1
   fi
   [[ -n "$new_session" ]] && { session="$new_session"; echo "$session" > "$STATE"; }
-  last_done=0; { grep -q "DONE" <<<"$result" || [[ -f "$WORK/SUBMISSION.md" ]]; } && last_done=1
+  # "Done" = the agent said DONE or (re)wrote SUBMISSION.md during THIS
+  # invocation; a SUBMISSION.md from an earlier phase does not count.
+  sub_after="$(stat -c %Y "$WORK/SUBMISSION.md" 2>/dev/null || echo 0)"
+  last_done=0; { grep -q "DONE" <<<"$result" || [[ "$sub_after" != "$sub_before" ]]; } && last_done=1
   log "invocation.end" ",\"rc\":$rc,\"session\":\"$session\",\"session_recovered\":$recovered,\"done\":$last_done,\"out\":\"$(basename "$out")\""
 
   if [[ $rc -ne 0 ]]; then
@@ -142,7 +146,7 @@ except Exception: print("")' "$out")"
   fi
   fail_streak=0
   if [[ $last_done == 1 ]]; then
-    nap "${ICODE_CONTINUE_SLEEP_SEC:-600}"
+    nap "${ICODE_CONTINUE_SLEEP_SEC:-180}"
   else
     nap 5
   fi
