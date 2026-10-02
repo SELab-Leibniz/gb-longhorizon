@@ -37,3 +37,9 @@ __pycache__/
 /docs/opcode_descriptions.json
 /docs/OPCODES_COMMIT
 /.scratch/
+
+# Coding-agent runtime state that some agents write into the workspace
+/memory.db*
+/logs/
+/.chrys/
+/.jiuwenswarm/
