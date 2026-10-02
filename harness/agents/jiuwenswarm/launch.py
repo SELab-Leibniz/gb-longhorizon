@@ -174,10 +174,14 @@ async def answer_interaction(record):
 # Session id of the run in progress, learned from the event stream as soon as
 # the runtime announces it, so a crash or chaos kill can still be resumed.
 CURRENT = {"session": ""}
+STREAMING_EVENTS = {"chat.reasoning", "chat.delta"}
+STREAM_COUNTS = {}
 
 
 async def one_run(session_id, prompt, events_path):
-    client = Client([str(VENV / "jiuwenswarm-process"), "--run-jsonl"], cwd=str(WORK), env=env_for_child())
+    # The SDK appends --run-jsonl itself; passing it here too makes the process
+    # reject the run ("cannot be combined with legacy execution arguments").
+    client = Client([str(VENV / "jiuwenswarm-process")], cwd=str(WORK), env=env_for_child())
     req = {
         "input": prompt,
         "mode": "agent.code.normal",
@@ -192,6 +196,12 @@ async def one_run(session_id, prompt, events_path):
             if sid and sid != CURRENT["session"]:
                 CURRENT["session"] = sid
                 STATE.write_text(sid)
+            et = rec.get("event_type")
+            # Streaming deltas arrive one token at a time (~8k/min of reasoning);
+            # count them instead of logging each one, or a 48 h log runs to GBs.
+            if et in STREAMING_EVENTS:
+                STREAM_COUNTS[et] = STREAM_COUNTS.get(et, 0) + 1
+                return
             fh.write(json.dumps(rec) + "\n")
             fh.flush()
         result = await client.run(req, on_event=on_event, on_interaction=answer_interaction)
@@ -265,6 +275,7 @@ def main():
             prompt = RECHECK_PROMPT if last_done else CONTINUE_PROMPT
         events_path = TRAJ / f"jw_events_{int(time.time())}.jsonl"
         CURRENT["session"] = session
+        STREAM_COUNTS.clear()
         try:
             result = asyncio.run(one_run(session, prompt, events_path))
         except Exception as e:  # transport/protocol errors, or the child was killed
@@ -279,7 +290,7 @@ def main():
         ok = result.get("exit_code") == 0
         log("invocation.end", status=result.get("status"), exit_code=result.get("exit_code"),
             session=session, session_recovered=recovered, done=last_done, usage=result.get("usage"),
-            error=result.get("error"), events=events_path.name)
+            error=result.get("error"), events=events_path.name, streamed=dict(STREAM_COUNTS))
         if not ok:
             fail_streak += 1
             if fail_streak >= 3:
