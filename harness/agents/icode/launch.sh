@@ -49,6 +49,13 @@ log() { printf '{"t":%s,"event":"%s"%s}\n' "$(date +%s)" "$1" "${2:-}" >> "$LOG"
 CONTINUE_PROMPT='Continue working on the task in TASK.md. First check QUESTIONS.md for new answers from the product owner and git log / test results for the current state. Keep going until everything is complete and verified; say DONE only then.'
 RECHECK_PROMPT='Re-verify the project against TASK.md: run the full test suite, fix any regressions, and look for remaining gaps. If everything passes and nothing is left, say DONE.'
 
+# Chaos test: once, GB_CHAOS_AFTER_SEC after start, kill whatever icode
+# invocation is running (SIGKILL, no cleanup). The loop below then resumes
+# the session cold — recovery time is visible in the adapter log.
+if [[ "${GB_CHAOS_AFTER_SEC:-0}" -gt 0 && ! -f "$GB_TRAJECTORY_DIR/chaos_done" ]]; then
+  ( sleep "$GB_CHAOS_AFTER_SEC"; touch "$GB_TRAJECTORY_DIR/chaos_done"; log "chaos.kill"; pkill -KILL -f "icode run" ) &
+fi
+
 session="$(cat "$STATE" 2>/dev/null || true)"
 fail_streak=0
 log "adapter.start" ",\"arm\":\"${GB_ARM:-}\",\"resume_session\":\"$session\""
@@ -70,7 +77,7 @@ except Exception: print("")' "$out")"
 try: print(json.load(open(sys.argv[1])).get("result",""))
 except Exception: print("")' "$out")"
   [[ -n "$new_session" ]] && { session="$new_session"; echo "$session" > "$STATE"; }
-  last_done=0; grep -q "DONE" <<<"$result" && last_done=1
+  last_done=0; { grep -q "DONE" <<<"$result" || [[ -f "$WORK/SUBMISSION.md" ]]; } && last_done=1
   log "invocation.end" ",\"rc\":$rc,\"session\":\"$session\",\"done\":$last_done,\"out\":\"$(basename "$out")\""
 
   if [[ $rc -ne 0 ]]; then

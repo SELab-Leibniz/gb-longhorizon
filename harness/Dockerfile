@@ -1,3 +1,4 @@
+# SUPERSEDED by harness/harbor/task/environment/Dockerfile — kept for reference only.
 # Sandbox image for the agent. Built AFTER fetch_assets.sh, vendor.sh and
 # make_golden.sh have run on the host.
 #

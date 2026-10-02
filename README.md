@@ -37,6 +37,7 @@ docs/               Pan Docs, opcode table — your hardware reference
 roms/test/          Blargg, Mooneye, dmg-acid2 test ROMs + expected results
 roms/games/         homebrew games for manual and scripted testing
 DECISIONS.md        architectural decisions already taken — read first
+TESTING.md          how to verify your work, step by step
 ```
 
 ✓ = implemented, ✗ = `todo!()` stub with its interface and doc comment in place.
@@ -57,6 +58,8 @@ DECISIONS.md        architectural decisions already taken — read first
    `cargo fmt --check` clean.
 
 ## Running things
+
+`TESTING.md` is the full checklist. The essentials:
 
 ```sh
 cargo build --release                       # core + cli

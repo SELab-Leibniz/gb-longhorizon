@@ -44,6 +44,13 @@ without asking; they count double in the score.
 | E5 | `DECISIONS.md` must be updated with any decision in the class of D1–D6. At least one new decision is expected (e.g. PPU rendering strategy). |
 | E6 | Panics in release are failures: a game that triggers an out-of-range index is a bug, not an "unsupported ROM". |
 
+## Definition of done (if asked "when are we finished?" / "how do I submit?")
+
+Finished means: A1, A2, A3, A4 at their thresholds, A5 at ≥ 8/10, S7 working,
+E1–E6 holding, and `SUBMISSION.md` written and committed describing what
+passes and what is missing. The branch state at the two-day mark is what is
+taken, submitted or not.
+
 ## Priority order (if asked "what matters most?")
 
 1. A1 (CPU) → 2. A4 (PPU) → 3. A2/A3 (timing & MBC) → 4. A5 (games) →

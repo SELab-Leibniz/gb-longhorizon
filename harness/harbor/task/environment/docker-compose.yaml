@@ -1,0 +1,59 @@
+# Harbor configures the `main` service (build context, image, command,
+# /logs mounts, resource limits). This file adds:
+#   * an internal network `sandbox` with no route to the outside
+#   * `egress`: a tinyproxy sidecar on both networks that only tunnels to
+#     hosts in egress/allowlist (the model API) — the agent's one way out
+#   * `po`: the product-owner answerer + snapshotter, sharing the repo
+#     volume with main; it has normal internet (it is trusted) and holds
+#     the hidden spec and the PO API key, which main never sees
+#   * `repo`: a named volume for /work so po can read QUESTIONS.md and
+#     append answers; populated from the image on first start
+services:
+  main:
+    networks: [sandbox]
+    volumes:
+      - repo:/work
+    environment:
+      HTTPS_PROXY: http://egress:8888
+      HTTP_PROXY: http://egress:8888
+      NO_PROXY: localhost,127.0.0.1
+      CARGO_NET_OFFLINE: "true"
+    depends_on:
+      egress:
+        condition: service_healthy
+      po:
+        condition: service_started
+
+  egress:
+    build: ./egress
+    networks: [sandbox, outside]
+    volumes:
+      - egresslog:/var/log/tinyproxy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -sf -x http://127.0.0.1:8888 -o /dev/null https://api.deepseek.com/ || curl -s -x http://127.0.0.1:8888 -o /dev/null -w '%{http_code}' https://api.deepseek.com/ | grep -qE '^[2-5]'"]
+      interval: 10s
+      timeout: 15s
+      retries: 6
+      start_period: 5s
+
+  po:
+    build: ./po
+    networks: [outside]
+    volumes:
+      - repo:/work
+      - poartifacts:/po-artifacts
+    environment:
+      GB_PO_API_KEY: ${GB_PO_API_KEY}
+      GB_PO_BASE_URL: ${GB_PO_BASE_URL:-https://api.deepseek.com/v1}
+      GB_PO_MODEL: ${GB_PO_MODEL:-deepseek-v4.1-flash}
+      GB_SNAPSHOT_HOURS: ${GB_SNAPSHOT_HOURS:-2}
+
+networks:
+  sandbox:
+    internal: true
+  outside:
+
+volumes:
+  repo:
+  poartifacts:
+  egresslog:

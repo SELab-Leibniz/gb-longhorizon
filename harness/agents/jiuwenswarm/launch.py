@@ -188,9 +188,23 @@ async def one_run(session_id, prompt, events_path):
     return result
 
 
+def chaos_watchdog():
+    """Once, GB_CHAOS_AFTER_SEC after start, SIGKILL the running agent process."""
+    after = int(os.environ.get("GB_CHAOS_AFTER_SEC", "0") or 0)
+    marker = TRAJ / "chaos_done"
+    if after <= 0 or marker.exists():
+        return
+    time.sleep(after)
+    marker.touch()
+    log("chaos.kill")
+    subprocess.run(["pkill", "-KILL", "-f", "jiuwenswarm-process"], check=False)
+
+
 def main():
     TRAJ.mkdir(parents=True, exist_ok=True)
     setup()
+    import threading
+    threading.Thread(target=chaos_watchdog, daemon=True).start()
     session = STATE.read_text().strip() if STATE.exists() else ""
     log("adapter.start", arm=os.environ.get("GB_ARM"), resume_session=session)
     fail_streak = 0
@@ -210,7 +224,7 @@ def main():
             session = sid
             STATE.write_text(session)
         output = str(result.get("output") or "")
-        last_done = "DONE" in output
+        last_done = "DONE" in output or (WORK / "SUBMISSION.md").exists()
         ok = result.get("exit_code") == 0
         log("invocation.end", status=result.get("status"), exit_code=result.get("exit_code"),
             session=session, done=last_done, usage=result.get("usage"), error=result.get("error"),

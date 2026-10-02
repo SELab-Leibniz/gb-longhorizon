@@ -1,0 +1,3 @@
+# One extended-regex per line, matched against the request host.
+# Keep this list minimal: it is the anti-copying control for the study.
+^api\.deepseek\.com$

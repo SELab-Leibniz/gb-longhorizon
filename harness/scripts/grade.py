@@ -22,7 +22,8 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROMS = HERE.parent.parent / "roms"
+ROMS = HERE.parent.parent / "roms"          # overridden by --roms
+FROZEN_DIR = HERE.parent.parent             # overridden by --frozen-dir (holds the reference copies of frozen files)
 SAMPLE_EVERY = 60   # compare one frame per second of emulated time
 ALIGN_WINDOW = 2    # ± frames of slack between reference and agent frame numbering
 
@@ -47,11 +48,12 @@ def tier0(co):
     r["cli_help"] = {"ok": code == 0 and "--rom" in out}
     # Harness files must be byte-identical to the frozen originals.
     frozen = {
-        "gb-core/tests/rom_suite.rs": HERE.parent.parent / "gb-core/tests/rom_suite.rs",
-        "gb-cli/src/main.rs": HERE.parent.parent / "gb-cli/src/main.rs",
+        "gb-core/tests/rom_suite.rs": FROZEN_DIR / "gb-core/tests/rom_suite.rs",
+        "gb-cli/src/main.rs": FROZEN_DIR / "gb-cli/src/main.rs",
     }
     r["frozen_files_unchanged"] = {
-        rel: (co / rel).read_bytes() == src.read_bytes() for rel, src in frozen.items()
+        rel: (co / rel).exists() and src.exists() and (co / rel).read_bytes() == src.read_bytes()
+        for rel, src in frozen.items()
     }
     return r
 
@@ -192,9 +194,16 @@ def main():
     ap.add_argument("checkout", type=Path)
     ap.add_argument("--golden", type=Path, default=HERE.parent / "golden")
     ap.add_argument("--tier", type=int, help="run only this tier (0-4)")
+    ap.add_argument("--roms", type=Path, default=None, help="roms/ directory (default: repo's own roms/)")
+    ap.add_argument("--frozen-dir", type=Path, default=None, help="directory holding reference copies of the frozen files")
     ap.add_argument("-o", "--out", type=Path, default=Path("results.json"))
     a = ap.parse_args()
     co = a.checkout.resolve()
+    global ROMS, FROZEN_DIR
+    if a.roms:
+        ROMS = a.roms.resolve()
+    if a.frozen_dir:
+        FROZEN_DIR = a.frozen_dir.resolve()
 
     report = {"checkout": str(co), "graded_at": int(time.time()), "git_log": git_log(co)}
     tiers = [a.tier] if a.tier is not None else [0, 1, 2, 3, 4]

@@ -11,8 +11,9 @@ harness/
   PRODUCT_OWNER.md        how the PO agent answers, and what it logs
   AGENT_BRIEF.md          the only task statement the agent receives
   golden/                 Tier-3 frame hashes + input scripts (generated)
-  orchestrator/           run.py (controller), po_agent.py, stub_agent.py
-  agents/                 adapters: icode/, jiuwenswarm/
+  harbor/                 THE WAY TO RUN THE STUDY: Harbor task + agents + jobs (see harbor/README.md)
+  agents/                 adapter loops for icode/ and jiuwenswarm/ (used by harbor/agents)
+  orchestrator/           po_agent.py (used by the PO sidecar), run.py + stub_agent.py for local dry runs
   ref/                    SameBoy reference runner
   scripts/
     fetch_assets.sh       download Pan Docs, opcode table, test ROMs, homebrew
@@ -54,7 +55,15 @@ match rate. It also records `git log` so the tier-pass curve can be
 replayed against commit timestamps. Run it on each 2-hour snapshot to
 produce the time-series the write-up needs.
 
-## Running an agent: the orchestrator
+## Running the study
+
+**Use Harbor** — see `harbor/README.md`. The task, both agents, the egress
+allowlist, the product-owner sidecar and the snapshots are all packaged
+there; `harbor run -c harness/harbor/jobs/<agent>.yaml` runs one 48-hour
+trial. The orchestrator below predates that packaging and is kept for
+Docker-free dry runs of an adapter.
+
+## Local dry runs: the orchestrator
 
 The study is black-box: each coding agent gets the same task, the same
 product-owner channel and the same 48 hours in its shipped configuration.

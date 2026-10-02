@@ -21,3 +21,13 @@ __pycache__/
 /harness/ref/sameboy-src/
 /harness/ref/bin/
 /harness/runs/
+
+# Harbor task: staged copies (harness/harbor/sync.sh)
+/harness/harbor/task/tests/grade.py
+/harness/harbor/task/tests/golden/
+/harness/harbor/task/tests/frozen/
+/harness/harbor/task/environment/po/HIDDEN_SPEC.md
+/harness/harbor/task/environment/po/PRODUCT_OWNER.md
+/harness/harbor/task/environment/po/po_agent.py
+/harness/harbor/task/instruction.md
+/jobs/

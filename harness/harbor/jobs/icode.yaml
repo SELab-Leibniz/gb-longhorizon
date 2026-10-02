@@ -1,0 +1,22 @@
+# harbor run -c harness/harbor/jobs/icode.yaml
+job_name: gb-icode
+jobs_dir: jobs
+n_attempts: 1
+orchestrator:
+  type: local
+  n_concurrent_trials: 1
+environment:
+  type: docker
+  force_build: false
+  delete: false      # keep the containers + repo volume for inspection
+agents:
+  - import_path: gb_agents:ICodeAgent
+    model_name: deepseek/deepseek-v4.1-flash
+    env:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    kwargs:
+      run_seconds: 172500
+      chaos_after_sec: 72000
+    override_setup_timeout_sec: 600
+tasks:
+  - path: harness/harbor/task

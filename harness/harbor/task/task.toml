@@ -1,0 +1,53 @@
+version = "1.0"
+
+# Evidence that lives outside the agent's container: the product-owner log,
+# periodic repo snapshots and the egress proxy log. Collected by Harbor
+# into <trial>/artifacts/.
+artifacts = [
+    { source = "/po-artifacts", service = "po" },
+    { source = "/var/log/tinyproxy", service = "egress" },
+]
+
+[task]
+name = "selab/gb-longhorizon"
+description = "Finish a Rust Game Boy (DMG) emulator from a skeleton: 48-hour long-horizon coding task with a scripted product owner and ROM-based acceptance tests."
+authors = [{ name = "SELab-Leibniz" }]
+keywords = ["rust", "emulator", "long-horizon", "48h", "requirements"]
+
+[metadata]
+difficulty = "hard"
+category = "software-engineering"
+tags = ["long-horizon", "brownfield", "requirements-clarification", "offline"]
+expected_duration_hours = 48
+
+[verifier]
+# Builds the repo in release mode and runs every ROM suite plus the game
+# comparisons: budget generously. Runs in the agent's container (shared) so
+# the vendored toolchain and ROMs are available.
+timeout_sec = 5400.0
+environment_mode = "shared"
+
+[agent]
+# 48 hours. The agent wrappers (harbor/agents/*.py) exit cleanly a little
+# before this so Harbor never has to cancel them.
+timeout_sec = 172800.0
+
+[environment]
+# Clones the scaffold, fetches assets, vendors crates and pre-installs both
+# agents — all at build time, which is the only time network is available.
+build_timeout_sec = 3600.0
+cpus = 4
+memory_mb = 16384
+storage_mb = 40960
+gpus = 0
+workdir = "/work"
+
+# Interpolated into environment/docker-compose.yaml (compose tasks only get
+# these as ${VAR} substitutions, not as container env).
+[environment.env]
+GB_PO_API_KEY = "${GB_PO_API_KEY}"
+GB_PO_BASE_URL = "${GB_PO_BASE_URL:-https://api.deepseek.com/v1}"
+GB_PO_MODEL = "${GB_PO_MODEL:-deepseek-v4.1-flash}"
+GB_SNAPSHOT_HOURS = "${GB_SNAPSHOT_HOURS:-2}"
+
+[verifier.env]
