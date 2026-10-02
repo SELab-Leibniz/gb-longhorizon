@@ -36,7 +36,7 @@ def read_png(data: bytes):
         pos += 12 + n
     if interlace:
         raise ValueError("interlaced PNG not supported")
-    if depth != 8 and not (ctype == 3 and depth in (1, 2, 4, 8)):
+    if depth != 8 and not (ctype in (0, 3) and depth in (1, 2, 4, 8)):
         raise ValueError(f"unsupported bit depth {depth} for colour type {ctype}")
     chans = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ctype]
     bpp = max(1, chans * depth // 8)
@@ -64,7 +64,11 @@ def read_png(data: bytes):
                 pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
                 line[x] = (line[x] + pr) & 0xFF
         prev = line
-        if ctype == 3:
+        if ctype == 0 and depth < 8:
+            per, mask = 8 // depth, (1 << depth) - 1
+            vals = [(line[k // per] >> (8 - depth * (k % per + 1))) & mask for k in range(width)]
+            rows.append([(v * 255 // mask,) for v in vals])
+        elif ctype == 3:
             if depth == 8:
                 idx = list(line[:width])
             else:

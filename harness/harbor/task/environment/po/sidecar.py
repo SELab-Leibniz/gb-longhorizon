@@ -3,6 +3,11 @@
 Runs for the life of the trial:
   * every GB_PO_POLL_SEC: answer pending "## Q:" headings in /work/QUESTIONS.md
     (po_agent.ProductOwner, with a file-based backend on the shared volume)
+  * change requests (harness/change_requests/schedule.json): released in order
+    when the agent (re)writes SUBMISSION.md after the previous release, or at
+    the request's deadline; the request's assets are copied into /work and its
+    text appended to /work/CHANGE_REQUESTS.md (GB_CR_TIME_SCALE scales the
+    deadlines, e.g. 0.01 for a smoke test)
   * every GB_SNAPSHOT_HOURS: `git bundle` the repo into
     /po-artifacts/snapshots/NNN_<unixtime>.bundle (graded post hoc on the
     host with harness/scripts/grade_snapshots.sh)
@@ -11,13 +16,14 @@ artifact of the trial.
 """
 import json
 import os
+import shutil
 import subprocess
 import threading
 import time
 from pathlib import Path
 
-WORK = Path("/work")
-ART = Path("/po-artifacts")
+WORK = Path(os.environ.get("GB_WORK", "/work"))
+ART = Path(os.environ.get("GB_PO_ARTIFACTS", "/po-artifacts"))
 ART.mkdir(parents=True, exist_ok=True)
 (ART / "snapshots").mkdir(exist_ok=True)
 
@@ -63,6 +69,56 @@ def snapshots(log, every_hours):
         log("snapshot", n=n, ok=r.returncode == 0, commits=commits, submission=has_submission, err=r.stderr[-200:] if r.returncode else "")
 
 
+CR_DIR = Path("/po/change_requests")
+STAGED_DIR = Path("/po")      # holds staged/CR-N from fetch_staged_assets.sh
+
+
+def release(req, trigger, log):
+    copied = 0
+    for asset in req.get("assets", []):
+        src = (STAGED_DIR / asset) if asset.startswith("staged/") else (CR_DIR / asset)
+        if not src.exists():
+            log("cr.asset_missing", id=req["id"], asset=asset)
+            continue
+        for f in src.rglob("*"):
+            if f.is_file():
+                dst = WORK / f.relative_to(src)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, dst)
+                copied += 1
+    text = (CR_DIR / req["text"]).read_text().strip()
+    stamp = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
+    cr_file = WORK / "CHANGE_REQUESTS.md"
+    body = cr_file.read_text() if cr_file.exists() else "# Change requests\n"
+    body = body.replace("\nNone yet.\n", "\n")
+    cr_file.write_text(body.rstrip("\n") + f"\n\n{text}\n\n_Released {stamp}._\n")
+    log("cr.released", id=req["id"], title=req["title"], trigger=trigger, files=copied)
+
+
+def change_requests(log, start):
+    sched = json.loads((CR_DIR / "schedule.json").read_text())["requests"]
+    scale = float(os.environ.get("GB_CR_TIME_SCALE", "1"))
+    state_p = ART / "cr_state.json"
+    state = json.loads(state_p.read_text()) if state_p.exists() else {"released": []}
+    poll = max(2.0, min(30.0, 30.0 * scale * 10))
+    while len(state["released"]) < len(sched):
+        req = sched[len(state["released"])]
+        last = state["released"][-1]["t"] if state["released"] else start
+        sub = WORK / "SUBMISSION.md"
+        sub_t = sub.stat().st_mtime if sub.exists() else 0.0
+        trigger = None
+        if sub_t > last:
+            trigger = "submission"
+        elif time.time() >= start + req["deadline_hours"] * 3600 * scale:
+            trigger = "deadline"
+        if trigger:
+            release(req, trigger, log)
+            state["released"].append({"id": req["id"], "t": time.time(), "trigger": trigger})
+            state_p.write_text(json.dumps(state, indent=1))
+        time.sleep(poll)
+    log("cr.all_released")
+
+
 def main():
     # Wait for the agent container to populate the shared volume.
     for _ in range(120):
@@ -80,6 +136,8 @@ def main():
                                model=os.environ.get("GB_PO_MODEL", "deepseek-flash"),
                                poll_sec=float(os.environ.get("GB_PO_POLL_SEC", "20")))
     threading.Thread(target=snapshots, args=(log, float(os.environ.get("GB_SNAPSHOT_HOURS", "2"))), daemon=True).start()
+    if (CR_DIR / "schedule.json").exists():
+        threading.Thread(target=change_requests, args=(log, log.t0), daemon=True).start()
     po.run(threading.Event())  # never set: runs until the container is stopped
 
 

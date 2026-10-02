@@ -65,6 +65,14 @@ class ProductOwner:
 
     # ---- LLM --------------------------------------------------------------
 
+    def released_context(self) -> str:
+        """Change requests already released to the engineer (they may ask about these)."""
+        try:
+            text = self.backend.read_file("CHANGE_REQUESTS.md")
+        except Exception:
+            text = ""
+        return text.strip() or "(no change requests released yet)"
+
     def ask_llm(self, history, question: str) -> str:
         if not self.api_key:
             return "(product owner unavailable: GB_PO_API_KEY not set)\n[items: none]"
@@ -72,7 +80,9 @@ class ProductOwner:
         for q, a in history[-10:]:
             messages.append({"role": "user", "content": q})
             messages.append({"role": "assistant", "content": a})
-        messages.append({"role": "user", "content": question})
+        messages.append({"role": "user", "content":
+                         "[Context for the product owner, not from the engineer — change requests released so far:\n"
+                         + self.released_context() + "\n]\n\nEngineer's question:\n" + question})
         body = json.dumps({"model": self.model, "messages": messages, "temperature": 0.2, "max_tokens": 400}).encode()
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions", data=body,

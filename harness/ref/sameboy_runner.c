@@ -352,7 +352,10 @@ int main(int argc, char **argv)
             /* The screenshot a test ROM means at LD B,B is the last completed frame. */
             snprintf(path, sizeof path, "%s/breakpoint.%s", out_dir, is_cgb ? "ppm" : "pgm");
             write_image(path);
-            printf("breakpoint %llu %016llx\n", (unsigned long long)n, (unsigned long long)fnv1a64(frame_bytes, frame_len));
+            uint16_t bc = gb.registers[GB_REGISTER_BC], de = gb.registers[GB_REGISTER_DE], hl = gb.registers[GB_REGISTER_HL];
+            printf("breakpoint %llu %016llx regs %u %u %u %u %u %u\n", (unsigned long long)n,
+                   (unsigned long long)fnv1a64(frame_bytes, frame_len),
+                   bc >> 8, bc & 0xFF, de >> 8, de & 0xFF, hl >> 8, hl & 0xFF);
             fclose(hashes);
             free(script);
             return 0;

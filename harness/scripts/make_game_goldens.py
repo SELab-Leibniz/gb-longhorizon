@@ -37,9 +37,13 @@ WINDOW = 2
 VARIANTS = [(0, 1), (0, -1), (37, 0), (101, 0), (173, 1), (59, -1)]
 
 
+MODEL = "dmg"
+
+
 def run(runner, rom, script, frames, delay=0):
     with tempfile.TemporaryDirectory() as td:
-        subprocess.run([runner, str(rom), str(frames), str(script), td, "--dump-every", "0", "--boot-delay", str(delay)],
+        subprocess.run([runner, str(rom), str(frames), str(script), td, "--dump-every", "0", "--boot-delay", str(delay),
+                        "--model", MODEL],
                        check=True, capture_output=True)
         return {int(a): h for a, h in (line.split() for line in open(f"{td}/hashes.txt"))}
 
@@ -63,7 +67,10 @@ def main():
     ap.add_argument("--roms", type=Path, required=True)
     ap.add_argument("--golden", type=Path, required=True)
     ap.add_argument("--only", default="")
+    ap.add_argument("--model", choices=["dmg", "cgb"], default="dmg")
     a = ap.parse_args()
+    global MODEL
+    MODEL = a.model
     commit = (a.golden / "SAMEBOY_COMMIT").read_text().strip() if (a.golden / "SAMEBOY_COMMIT").exists() else ""
     tmp = Path(tempfile.mkdtemp())
     empty = tmp / "empty.input"
@@ -74,6 +81,8 @@ def main():
         if a.only and game not in a.only.split(","):
             continue
         rom = a.roms / f"{game}.gb"
+        if not rom.exists():
+            rom = a.roms / f"{game}.gbc"
         last = max(int(l.split()[0]) for l in script.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#"))
         frames = last + 600
         base = run(a.runner, rom, script, frames)
@@ -95,6 +104,7 @@ def main():
             "frames": frames, "sample_every": SAMPLE_EVERY, "window": WINDOW,
             "robust": rob, "input_sensitive": sensitive,
             "variants": [{"boot_delay": d, "input_shift": s} for d, s in VARIANTS],
+            "model": MODEL,
             "reference_commit": commit,
         }, indent=1))
         print(f"{game:14} {len(samples):7d} {len(rob):7d} {len(sensitive):16d}")

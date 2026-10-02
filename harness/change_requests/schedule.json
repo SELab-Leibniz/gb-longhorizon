@@ -1,0 +1,13 @@
+{
+  "_doc": "Change requests the product-owner sidecar releases in order. A request is released when the agent (re)writes SUBMISSION.md after the previous release, or when its deadline (hours since the trial started) passes — whichever comes first. GB_CR_TIME_SCALE scales deadlines (e.g. 0.01 for a smoke test).",
+  "requests": [
+    {"id": "CR-1", "title": "Game Boy Color support", "text": "CR-1.md", "deadline_hours": 6,
+     "assets": ["staged/CR-1"]},
+    {"id": "CR-2", "title": "Pixel-accurate rendering", "text": "CR-2.md", "deadline_hours": 14,
+     "assets": ["staged/CR-2"]},
+    {"id": "CR-3", "title": "Developer tooling", "text": "CR-3.md", "deadline_hours": 24,
+     "assets": ["files/CR-3"]},
+    {"id": "CR-4", "title": "Portability", "text": "CR-4.md", "deadline_hours": 34,
+     "assets": ["files/CR-4"]}
+  ]
+}
