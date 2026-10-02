@@ -73,6 +73,13 @@ def run_blargg(co, rom):
     return "timeout", secs, out[-500:]
 
 
+def run_blargg_mem(co, rom):
+    code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(120 * 60), "--blargg-mem"], co, timeout=600)
+    if code == 2:
+        return "panic", secs, err[-500:]
+    return ("pass" if code == 20 else "fail"), secs, out[-500:]
+
+
 def run_mooneye(co, rom):
     code, out, err, secs = sh([gb(co), "--rom", str(rom), "--frames", str(20 * 60), "--mooneye"], co, timeout=300)
     if code == 2:
@@ -82,7 +89,7 @@ def run_mooneye(co, rom):
 
 def tier1(co):
     results = {}
-    for family, runner in (("blargg", run_blargg), ("mooneye", run_mooneye)):
+    for family, runner in (("blargg", run_blargg), ("blargg-mem", run_blargg_mem), ("mooneye", run_mooneye)):
         fam = {}
         for rom in sorted((ROMS / "test" / family).rglob("*.gb")):
             status, secs, detail = runner(co, rom)
@@ -90,6 +97,10 @@ def tier1(co):
         n = len(fam)
         p = sum(1 for v in fam.values() if v["status"] == "pass")
         results[family] = {"passed": p, "total": n, "roms": fam}
+    bm = results["blargg-mem"]["roms"]
+    for sub in ("dmg_sound", "oam_bug"):
+        items = {k: v for k, v in bm.items() if k.startswith(sub + "/")}
+        results["blargg-mem"][sub] = {"passed": sum(1 for v in items.values() if v["status"] == "pass"), "total": len(items)}
     # Mooneye sub-scores the hidden spec cares about.
     moon = results["mooneye"]["roms"]
     def sub(prefix):
@@ -118,41 +129,69 @@ def tier2(co):
     return {"status": "pass" if got == expected else "fail", "got": got, "expected": expected, "secs": round(secs, 1)}
 
 
+def _run_game(co, rom, frames, script):
+    """Run a game headless; return (exit_code, {frame: hash}, stderr, secs)."""
+    with tempfile.TemporaryDirectory() as td:
+        code, out, err, secs = sh(
+            [gb(co), "--rom", str(rom), "--frames", str(frames), "--input-script", str(script),
+             "--dump-every", str(SAMPLE_EVERY), "--dump-dir", td, "--hash"],
+            co, timeout=900,
+        )
+    got = {int(k): v for k, v in re.findall(r"frame (\d+) ([0-9a-f]{16})", out)}
+    return code, got, err, secs
+
+
 def tier3(co, golden):
+    """Per-game score in [0, 1]:
+
+      fidelity  (0.7) fraction of the game's ROBUST sample frames whose hash
+                      appears in the reference's +-window around the same frame.
+                      Robust frames are the ones the reference reproduces under
+                      every boot-phase / input-timing perturbation
+                      (make_game_goldens.py) — i.e. what any accurate emulator
+                      must render, independent of RNG divergence.
+      responds  (0.3) the game reacts to the scripted input: on the samples where
+                      the reference's no-input run differs from its scripted run,
+                      the agent's two runs also differ on at least half of them.
+      A panic in either run scores 0. A game "passes" at score >= 0.8.
+    """
     games = {}
     for rom in sorted((ROMS / "games").glob("*.gb")):
         name = rom.stem
         gold = golden / f"{name}.fnv"
+        meta_p = golden / f"{name}.robust.json"
         script = golden / f"{name}.input"
-        if not gold.exists() or not script.exists():
-            games[name] = {"status": "no-golden"}
+        if not (gold.exists() and script.exists() and meta_p.exists()):
+            games[name] = {"status": "no-golden", "score": 0.0}
             continue
-        # Golden: every frame's hash from the reference emulator (make_golden.sh).
         expected = {int(k): v for k, v in (line.split() for line in gold.read_text().split("\n") if line.strip())}
-        frames = max(expected)
-        with tempfile.TemporaryDirectory() as td:
-            code, out, err, secs = sh(
-                [gb(co), "--rom", str(rom), "--frames", str(frames), "--input-script", str(script),
-                 "--dump-every", str(SAMPLE_EVERY), "--dump-dir", td, "--hash"],
-                co, timeout=900,
-            )
+        meta = json.loads(meta_p.read_text())
+        frames, window = meta["frames"], meta.get("window", ALIGN_WINDOW)
+        code, got, err, secs = _run_game(co, rom, frames, script)
         if code == 2:
-            games[name] = {"status": "panic", "detail": err[-500:]}
+            games[name] = {"status": "panic", "score": 0.0, "detail": err[-500:]}
             continue
-        got = {int(k): v for k, v in re.findall(r"frame (\d+) ([0-9a-f]{16})", out)}
-        # Two emulators agree on frame boundaries only to ±1–2 frames, so an
-        # agent frame counts as matched if its hash appears in the golden
-        # window around the same frame number.
-        sampled = [n for n in range(SAMPLE_EVERY, frames + 1, SAMPLE_EVERY)]
-        matched = sum(
-            1 for n in sampled
-            if n in got and got[n] in {expected.get(n + d) for d in range(-ALIGN_WINDOW, ALIGN_WINDOW + 1)}
-        )
-        rate = matched / len(sampled) if sampled else 0.0
-        games[name] = {"status": "pass" if rate >= 0.95 else "fail", "match_rate": round(rate, 3),
-                       "matched": matched, "total": len(sampled), "secs": round(secs, 1)}
+        with tempfile.TemporaryDirectory() as td:
+            empty = Path(td) / "empty.input"
+            empty.write_text("")
+            code2, got_noinput, err2, secs2 = _run_game(co, rom, frames, empty)
+        if code2 == 2:
+            games[name] = {"status": "panic", "score": 0.0, "detail": err2[-500:]}
+            continue
+        robust = meta["robust"]
+        matched = sum(1 for n in robust
+                      if got.get(n) in {expected.get(n + d) for d in range(-window, window + 1)})
+        fidelity = matched / len(robust) if robust else 0.0
+        sens = meta.get("input_sensitive", [])
+        differs = sum(1 for n in sens if n in got and got.get(n) != got_noinput.get(n))
+        responds = 1.0 if (not sens or differs >= len(sens) / 2) else differs / max(1, len(sens) / 2)
+        score = round(0.7 * fidelity + 0.3 * responds, 4)
+        games[name] = {"status": "pass" if score >= 0.8 else "fail", "score": score,
+                       "fidelity": round(fidelity, 3), "robust_matched": matched, "robust_total": len(robust),
+                       "responds": round(responds, 3), "secs": round(secs + secs2, 1)}
     passed = sum(1 for g in games.values() if g["status"] == "pass")
-    return {"passed": passed, "total": len(games), "games": games}
+    mean = sum(g["score"] for g in games.values()) / len(games) if games else 0.0
+    return {"passed": passed, "total": len(games), "mean_score": round(mean, 4), "games": games}
 
 
 def tier4(co):
@@ -204,6 +243,7 @@ def main():
         ROMS = a.roms.resolve()
     if a.frozen_dir:
         FROZEN_DIR = a.frozen_dir.resolve()
+    a.golden = a.golden.resolve()
 
     report = {"checkout": str(co), "graded_at": int(time.time()), "git_log": git_log(co)}
     tiers = [a.tier] if a.tier is not None else [0, 1, 2, 3, 4]

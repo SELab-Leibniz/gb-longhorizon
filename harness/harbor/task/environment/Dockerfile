@@ -1,7 +1,7 @@
 # Main sandbox image for the gb-longhorizon task.
 #
 # Everything that needs the network happens here, at build time:
-#   * clone the scaffold repo at a pinned commit
+#   * unpack the scaffold (git archive of this repo's HEAD, via sync.sh)
 #   * fetch Pan Docs, opcode table, test ROMs, homebrew games
 #   * vendor crates and switch cargo offline
 #   * pre-install both coding agents (iCode, jiuwenswarm) and their Python runtimes
@@ -12,12 +12,12 @@
 
 FROM rust:1.97.0-bookworm
 
-ARG GB_REPO=https://github.com/SELab-Leibniz/gb-longhorizon
-ARG GB_COMMIT=main
 ARG ICODE_REPO=https://github.com/openJiuwen-ai/iCode
-ARG ICODE_COMMIT=main
+# iCode main @ 2026-10-02
+ARG ICODE_COMMIT=b5366a0954305535b143dd8e5bfc9c54917cfea0
 ARG JW_REPO=https://github.com/openJiuwen-ai/jiuwenswarm
-ARG JW_COMMIT=main
+# jiuwenswarm develop (default branch; 'main' is the stale jiuwenclaw line)
+ARG JW_COMMIT=f0a69728c96b5961d993449f1a901cbd2f4dac5b
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -29,22 +29,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
-# ---- the task repository --------------------------------------------------
-RUN git clone "$GB_REPO" /work && cd /work && git checkout -q "$GB_COMMIT"
-WORKDIR /work
-RUN harness/scripts/fetch_assets.sh \
-    && harness/scripts/vendor.sh \
-    && cargo build --release --offline \
-    && cargo test --release --offline --no-run \
-    && rm -rf target/release/incremental
-
 # ---- coding agents ----------------------------------------------------------
 # iCode (package `chrys`; needs Python 3.14 — uv downloads it)
 RUN git clone "$ICODE_REPO" /opt/icode && cd /opt/icode && git checkout -q "$ICODE_COMMIT" \
     && uv sync --no-dev
 # jiuwenswarm (Python 3.11–3.13; engine `openjiuwen` comes from gitcode.com)
 RUN git clone "$JW_REPO" /opt/jiuwenswarm && cd /opt/jiuwenswarm && git checkout -q "$JW_COMMIT" \
-    && uv venv --python 3.12 && uv pip install -e . && uv pip install ./sdks/python
+    && uv venv --python 3.12 && uv pip install -e .
+# (the process SDK is imported from sdks/python/src by the adapter; no install needed)
+
+# ---- the task repository --------------------------------------------------
+# scaffold.tar = `git archive HEAD` of this repo, staged by harness/harbor/sync.sh
+COPY scaffold.tar /tmp/scaffold.tar
+RUN mkdir -p /work && tar -xf /tmp/scaffold.tar -C /work && rm /tmp/scaffold.tar
+WORKDIR /work
+RUN harness/scripts/fetch_assets.sh \
+    && harness/scripts/vendor.sh \
+    && cargo build --release --offline \
+    && cargo test --release --offline --no-run \
+    && rm -rf target/release/incremental
 
 # Adapter scripts (the loop that keeps each agent working for 48 h).
 RUN mkdir -p /opt/gb-agents && cp -r /work/harness/agents/icode /work/harness/agents/jiuwenswarm /opt/gb-agents/
@@ -53,7 +56,7 @@ RUN mkdir -p /opt/gb-agents && cp -r /work/harness/agents/icode /work/harness/ag
 # The agent must never see harness/ (hidden spec, goldens, grader) and its
 # git log should start at the scaffold.
 RUN cp harness/QUESTIONS_SEED.md /work/QUESTIONS.md \
-    && rm -rf /work/harness /work/.git /work/.github \
+    && rm -rf /work/harness /work/.github \
     && git init -q \
     && git config user.email "scaffold@example.invalid" \
     && git config user.name "Scaffold" \

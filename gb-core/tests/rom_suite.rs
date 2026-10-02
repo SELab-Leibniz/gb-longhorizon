@@ -10,6 +10,10 @@
 //!   the budget is generous.
 //! * `roms/test/mooneye/**/*.gb` — the ROM executes `LD B,B` when done;
 //!   pass when B,C,D,E,H,L == 3,5,8,13,21,34 at that moment.
+//! * `roms/test/blargg-mem/**/*.gb` — Blargg ROMs that report through
+//!   cartridge RAM (`dmg_sound`, `oam_bug`): once $A001-$A003 hold the
+//!   signature DE B0 61, $A000 is the status (0x80 = running, 0 = passed,
+//!   anything else = failed) and $A004.. is the zero-terminated text output.
 //! * `roms/test/acid2/dmg-acid2.gb` — run a fixed number of frames and
 //!   compare the framebuffer FNV-1a hash with `roms/test/acid2/expected.fnv`.
 //!
@@ -19,7 +23,7 @@
 //!
 //! Run everything:          `cargo test --release -p gb-core --test rom_suite`
 //! See per-ROM detail:      add `-- --nocapture`
-//! Run a single family:     `-- blargg` / `-- mooneye` / `-- acid2`
+//! Run a single family:     `-- blargg` / `-- blargg_mem` / `-- mooneye` / `-- acid2`
 //! Skip a family (e.g. in CI without ROMs): set `GB_SKIP_ROMS=1`.
 
 use gb_core::{Emulator, StepResult};
@@ -119,6 +123,46 @@ fn run_blargg(rom: &[u8]) -> Outcome {
         "timed out after {} frames; serial so far:\n{}",
         BLARGG_BUDGET_FRAMES,
         String::from_utf8_lossy(&serial).trim()
+    ))
+}
+
+/// Read the zero-terminated text a Blargg ROM writes at $A004.
+fn blargg_mem_text(emu: &Emulator) -> String {
+    let mut out = Vec::new();
+    for addr in 0xA004u16..0xBFFF {
+        let b = emu.peek(addr);
+        if b == 0 {
+            break;
+        }
+        out.push(b);
+    }
+    String::from_utf8_lossy(&out).trim().to_string()
+}
+
+/// Run a ROM to completion using Blargg's memory protocol.
+fn run_blargg_mem(rom: &[u8]) -> Outcome {
+    let mut emu = match Emulator::load(rom) {
+        Ok(e) => e,
+        Err(e) => return Outcome::Fail(format!("load error: {e}")),
+    };
+    for _ in 0..BLARGG_BUDGET_FRAMES {
+        emu.step_frame();
+        let signed = (emu.peek(0xA001), emu.peek(0xA002), emu.peek(0xA003)) == (0xDE, 0xB0, 0x61);
+        if !signed {
+            continue;
+        }
+        match emu.peek(0xA000) {
+            0x80 => {}
+            0x00 => return Outcome::Pass,
+            code => {
+                return Outcome::Fail(format!("status {code:#04x}:\n{}", blargg_mem_text(&emu)));
+            }
+        }
+    }
+    Outcome::Fail(format!(
+        "timed out after {} frames; text so far:\n{}",
+        BLARGG_BUDGET_FRAMES,
+        blargg_mem_text(&emu)
     ))
 }
 
@@ -254,6 +298,11 @@ fn assert_all_passed(family: &str, summary: Option<Summary>) {
 #[test]
 fn blargg() {
     assert_all_passed("blargg", run_family("blargg", run_blargg));
+}
+
+#[test]
+fn blargg_mem() {
+    assert_all_passed("blargg-mem", run_family("blargg-mem", run_blargg_mem));
 }
 
 #[test]

@@ -4,6 +4,9 @@
 //! for the base table and one for the `0xCB` prefix table, each returning
 //! the T-cycles consumed. Conditional jumps/calls/returns take different
 //! cycle counts when taken vs not taken — `docs/opcodes.json` lists both.
+//! Cycles are not just counted: each memory access is a `cycle_read` /
+//! `cycle_write` and each internal delay an `idle_cycle`, in hardware order
+//! (DECISIONS.md D1). Blargg `mem_timing` checks the order.
 //!
 //! Things that commonly go wrong and that the test ROMs catch:
 //! * `DAA` (Blargg cpu_instrs 01 – "special")

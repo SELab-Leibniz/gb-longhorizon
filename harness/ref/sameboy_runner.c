@@ -2,7 +2,7 @@
  * sameboy_runner — headless reference run for golden-hash generation.
  *
  *   sameboy_runner ROM FRAMES INPUT_SCRIPT OUT_DIR [--boot dmg_boot.bin]
- *                  [--dump-every N]
+ *                  [--dump-every N] [--boot-delay M]
  *
  * Runs ROM on a SameBoy DMG-B core for FRAMES frames after the boot ROM has
  * handed over to the cartridge, applying INPUT_SCRIPT (same format as
@@ -56,7 +56,7 @@ static bool frame_ready = false;
  * NR52=80 NR50=77 NR51=F3 NR11=80 NR12=F3, then LDH (FF50),A at 0x00FE. */
 static uint8_t boot_stub[256];
 
-static void init_boot_stub(void)
+static void init_boot_stub(unsigned delay)
 {
     static const uint8_t prog[] = {
         0x3E, 0x91, 0xE0, 0x40, /* LD A,91 ; LDH (40),A  LCDC */
@@ -76,10 +76,18 @@ static void init_boot_stub(void)
         0x31, 0x80, 0xFF,       /* LD SP,FF80 */
         0xF1,                   /* POP AF -> AF=01B0, SP=FF82 */
         0x31, 0xFE, 0xFF,       /* LD SP,FFFE */
-        0xC3, 0xFE, 0x00,       /* JP 00FE */
+        0xC3, 0x00, 0x00,       /* JP 00FE-delay (patched below) */
     };
     memset(boot_stub, 0x00, sizeof boot_stub); /* 0x00 = NOP */
     memcpy(boot_stub, prog, sizeof prog);
+    /* --boot-delay N runs N extra NOPs (N M-cycles) before handing over, which
+     * shifts the DIV and PPU phase at PC=0100. make_golden.sh uses this to find
+     * frames that do not depend on sub-frame timing. */
+    unsigned max_delay = 0xFE - (unsigned)sizeof prog;
+    if (delay > max_delay) { fprintf(stderr, "--boot-delay max is %u\n", max_delay); exit(1); }
+    unsigned target = 0xFE - delay;
+    boot_stub[sizeof prog - 2] = (uint8_t)(target & 0xFF);
+    boot_stub[sizeof prog - 1] = (uint8_t)(target >> 8);
     boot_stub[0xFE] = 0xE0; /* LDH (FF50),A — A is 0x01 here */
     boot_stub[0xFF] = 0x50;
 }
@@ -197,7 +205,7 @@ static void run_one_frame(GB_gameboy_t *gb)
 int main(int argc, char **argv)
 {
     if (argc < 5) {
-        fprintf(stderr, "usage: %s ROM FRAMES INPUT_SCRIPT OUT_DIR [--boot dmg_boot.bin] [--dump-every N]\n", argv[0]);
+        fprintf(stderr, "usage: %s ROM FRAMES INPUT_SCRIPT OUT_DIR [--boot dmg_boot.bin] [--dump-every N] [--boot-delay M]\n", argv[0]);
         return 1;
     }
     const char *rom_path = argv[1];
@@ -206,9 +214,11 @@ int main(int argc, char **argv)
     const char *out_dir = argv[4];
     const char *boot_path = NULL;
     uint64_t dump_every = 60;
+    unsigned boot_delay = 0;
     for (int i = 5; i < argc; i++) {
         if (!strcmp(argv[i], "--boot") && i + 1 < argc) boot_path = argv[++i];
         else if (!strcmp(argv[i], "--dump-every") && i + 1 < argc) dump_every = strtoull(argv[++i], NULL, 10);
+        else if (!strcmp(argv[i], "--boot-delay") && i + 1 < argc) boot_delay = (unsigned)strtoul(argv[++i], NULL, 10);
         else { fprintf(stderr, "unknown arg %s\n", argv[i]); return 1; }
     }
 
@@ -217,12 +227,16 @@ int main(int argc, char **argv)
     script_line_t *script;
     size_t script_n = load_script(script_path, &script);
 
+    /* SameBoy randomises power-on RAM with a time-seeded RNG, which makes runs
+     * non-reproducible. Disable it: RAM starts zeroed, matching gb-core's scaffold
+     * (vec![0; ..]) and making goldens identical across runs and platforms. */
+    GB_random_set_enabled(false);
     GB_gameboy_t gb;
     GB_init(&gb, GB_MODEL_DMG_B);
     if (boot_path) {
         if (GB_load_boot_rom(&gb, boot_path)) { fprintf(stderr, "cannot load boot ROM %s\n", boot_path); return 1; }
     } else {
-        init_boot_stub();
+        init_boot_stub(boot_delay);
         GB_load_boot_rom_from_buffer(&gb, boot_stub, sizeof boot_stub);
     }
     GB_set_palette(&gb, &GB_PALETTE_GREY);

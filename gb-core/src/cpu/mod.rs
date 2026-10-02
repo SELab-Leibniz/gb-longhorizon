@@ -51,6 +51,12 @@ impl Cpu {
     /// Fetch, decode and execute one instruction, servicing interrupts first
     /// if IME is set and one is pending.
     ///
+    /// Every memory access (including opcode and operand fetches and stack
+    /// pushes/pops) must go through `mmu.cycle_read` / `mmu.cycle_write`, and
+    /// every internal delay cycle through `mmu.idle_cycle`, in the order the
+    /// hardware performs them — that is what advances the rest of the system
+    /// (DECISIONS.md D1). Return the total T-cycles consumed.
+    ///
     /// Must return [`StepResult::Breakpoint`] when the executed opcode is
     /// `0x40` (`LD B,B`) — the test harness depends on it.
     pub fn step(&mut self, _mmu: &mut Mmu) -> StepResult {

@@ -21,8 +21,9 @@ cargo test --release --lib -p gb-core
 ## 3. Accuracy test ROMs (the acceptance suite)
 
 ```sh
-cargo test --release --test rom_suite -- --nocapture            # all three families
+cargo test --release --test rom_suite -- --nocapture            # all families
 cargo test --release --test rom_suite -- --nocapture blargg     # CPU / timing (serial "Passed")
+cargo test --release --test rom_suite -- --nocapture blargg_mem # audio (dmg_sound) + OAM bug, result in cart RAM
 cargo test --release --test rom_suite -- --nocapture mooneye    # timers, interrupts, MBC (LD B,B protocol)
 cargo test --release --test rom_suite -- --nocapture acid2      # PPU rendering (frame hash)
 ```
@@ -36,6 +37,7 @@ Running a single ROM by hand, e.g. to see Blargg's serial output:
 ```sh
 cargo run --release -p gb-cli -- --rom roms/test/blargg/cpu_instrs/cpu_instrs.gb --frames 7200 --serial-stdout
 cargo run --release -p gb-cli -- --rom roms/test/mooneye/acceptance/timer/div_write.gb --frames 1200 --mooneye
+cargo run --release -p gb-cli -- --rom "roms/test/blargg-mem/dmg_sound/rom_singles/01-registers.gb" --frames 7200 --blargg-mem
 cargo run --release -p gb-cli -- --rom roms/test/acid2/dmg-acid2.gb --frames 120 --dump-frame acid2.pgm --hash
 # compare the printed hash with roms/test/acid2/expected.fnv; open acid2.pgm in any image viewer
 ```

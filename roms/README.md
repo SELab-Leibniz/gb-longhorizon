@@ -8,6 +8,7 @@ and `acid2/expected.fnv`. ROM files are fetched by
 roms/
   test/
     blargg/     cpu_instrs/, instr_timing/, mem_timing/, halt_bug.gb
+    blargg-mem/ dmg_sound/, oam_bug/  (report through cartridge RAM)
     mooneye/    acceptance/**, emulator-only/mbc1/**, emulator-only/mbc5/**
     acid2/      dmg-acid2.gb, expected.fnv
   games/        open-source homebrew .gb files (see LICENSES.md after fetch)
@@ -17,8 +18,9 @@ roms/
 
 | Family | Signal | Notes |
 |---|---|---|
-| Blargg | Serial output contains `Passed` / `Failed` | Only the serial-reporting ROMs are included (`cpu_instrs`, `instr_timing`, `mem_timing`, `halt_bug`). `dmg_sound`, `oam_bug` and `mem_timing-2` report into memory, not serial, and are excluded. |
-| Mooneye | `LD B,B` executed with B,C,D,E,H,L = 3,5,8,13,21,34 | 0x42 in every register means fail. `manual-only/` and `misc/` (CGB) are excluded. |
+| Blargg | Serial output contains `Passed` / `Failed` | `cpu_instrs`, `instr_timing`, `mem_timing`, `halt_bug`. |
+| Blargg (memory) | Once $A001-$A003 = DE B0 61: $A000 is the status (0x80 running, 0x00 passed, other = failed); text at $A004 | `dmg_sound` (audio) and `oam_bug`. `gb --blargg-mem` implements this protocol. |
+| Mooneye | `LD B,B` executed with B,C,D,E,H,L = 3,5,8,13,21,34 | 0x42 in every register means fail. `manual-only/`, `misc/` and ROMs for other models (SGB, DMG0, MGB, CGB, AGB suffixes) are excluded; `-GS`, `-dmgABC*` and unsuffixed ROMs target this DMG. |
 | dmg-acid2 | FNV-1a hash of the framebuffer after 120 frames | Expected hash produced by the reference emulator. |
 
 ## Homebrew games

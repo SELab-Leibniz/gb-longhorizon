@@ -15,9 +15,12 @@
 //!   FFFF       IE                       → interrupts
 //! ```
 //!
-//! `tick(cycles)` advances every peripheral in lock-step with the CPU; see
-//! `DECISIONS.md` D1 for the cycle model. OAM DMA (write to FF46) is driven
-//! from here because it touches both the cartridge/WRAM side and the PPU.
+//! The CPU drives time (`DECISIONS.md` D1): every bus access it makes goes
+//! through `cycle_read` / `cycle_write`, which advance all peripherals by one
+//! M-cycle as part of the access, and internal delay cycles call
+//! `idle_cycle`. `read` / `write` are untimed. OAM DMA (write to FF46) is
+//! driven from `tick` because it touches both the cartridge/WRAM side and the
+//! PPU.
 
 use crate::apu::Apu;
 use crate::cartridge::Cartridge;
@@ -66,18 +69,39 @@ impl Mmu {
         }
     }
 
-    /// Bus read.
+    /// Untimed bus read (no peripheral advance). For OAM DMA source reads,
+    /// debugging and save states — the CPU uses `cycle_read`.
     pub fn read(&self, _addr: u16) -> u8 {
         todo!("mmu::Mmu::read — address decoding")
     }
 
-    /// Bus write.
+    /// Untimed bus write. The CPU uses `cycle_write`.
     pub fn write(&mut self, _addr: u16, _value: u8) {
         todo!("mmu::Mmu::write — address decoding, OAM DMA trigger at FF46")
     }
 
+    /// One CPU memory-read M-cycle: advance all peripherals by 4 T-cycles and
+    /// perform the read, in the order hardware does (see Pan Docs and the
+    /// Mooneye timing tests for where within the M-cycle the access lands).
+    pub fn cycle_read(&mut self, _addr: u16) -> u8 {
+        todo!("mmu::Mmu::cycle_read — tick(4) + read, correctly ordered")
+    }
+
+    /// One CPU memory-write M-cycle: advance all peripherals by 4 T-cycles
+    /// and perform the write.
+    pub fn cycle_write(&mut self, _addr: u16, _value: u8) {
+        todo!("mmu::Mmu::cycle_write — tick(4) + write, correctly ordered")
+    }
+
+    /// One CPU M-cycle with no bus access (internal delay, e.g. the extra
+    /// cycle of `PUSH`, a taken `JR`, or 16-bit `INC`).
+    pub fn idle_cycle(&mut self) {
+        self.tick(4);
+    }
+
     /// Advance every clocked peripheral by `cycles` T-cycles and collect the
-    /// interrupts they raise into `interrupts`.
+    /// interrupts they raise into `interrupts`. Called via the three methods
+    /// above; the facade never calls it directly.
     pub fn tick(&mut self, _cycles: u32) {
         todo!("mmu::Mmu::tick — step ppu/apu/timer/serial/dma, gather IF bits")
     }

@@ -6,11 +6,12 @@
 //! ```text
 //! gb --rom GAME.gb [--frames N] [--input-script FILE] [--dump-frame PATH]
 //!    [--dump-every N --dump-dir DIR] [--serial-stdout] [--hash]
-//!    [--mooneye] [--save-state PATH] [--load-state PATH]
+//!    [--mooneye] [--blargg-mem] [--save-state PATH] [--load-state PATH]
 //! ```
 //!
 //! Exit codes: 0 ok · 1 usage/IO error · 2 emulator panic ·
-//! 10 Mooneye pass · 11 Mooneye fail (only with --mooneye).
+//! 10 Mooneye pass · 11 Mooneye fail (only with --mooneye) ·
+//! 20 Blargg pass · 21 Blargg fail (only with --blargg-mem).
 //!
 //! Input script format (one directive per line, `#` comments):
 //! ```text
@@ -38,6 +39,7 @@ struct Args {
     serial_stdout: bool,
     hash: bool,
     mooneye: bool,
+    blargg_mem: bool,
     save_state: Option<PathBuf>,
     load_state: Option<PathBuf>,
 }
@@ -52,6 +54,7 @@ usage: gb --rom FILE [options]
   --serial-stdout      echo serial-port output to stdout
   --hash               print FNV-1a hash of each dumped frame + final frame
   --mooneye            stop at LD B,B; exit 10 on pass, 11 on fail
+  --blargg-mem         stop when a Blargg ROM reports via $A000; exit 20 pass, 21 fail
   --save-state PATH    write save state after the run
   --load-state PATH    restore save state before the run
 ";
@@ -67,6 +70,7 @@ fn parse_args() -> Result<Args, String> {
         serial_stdout: false,
         hash: false,
         mooneye: false,
+        blargg_mem: false,
         save_state: None,
         load_state: None,
     };
@@ -99,6 +103,7 @@ fn parse_args() -> Result<Args, String> {
             "--serial-stdout" => a.serial_stdout = true,
             "--hash" => a.hash = true,
             "--mooneye" => a.mooneye = true,
+            "--blargg-mem" => a.blargg_mem = true,
             "--save-state" => a.save_state = Some(value("--save-state")?.into()),
             "--load-state" => a.load_state = Some(value("--load-state")?.into()),
             "-h" | "--help" => return Err(USAGE.to_string()),
@@ -218,6 +223,30 @@ fn run(args: Args) -> Result<u8, String> {
             emu.step_frame();
         }
 
+        if args.blargg_mem
+            && (emu.peek(0xA001), emu.peek(0xA002), emu.peek(0xA003)) == (0xDE, 0xB0, 0x61)
+        {
+            let status = emu.peek(0xA000);
+            if status != 0x80 {
+                let mut text = Vec::new();
+                for addr in 0xA004u16..0xBFFF {
+                    match emu.peek(addr) {
+                        0 => break,
+                        b => text.push(b),
+                    }
+                }
+                writeln!(
+                    out,
+                    "blargg-mem: status {status:#04x} at frame {frame} → {}\n{}",
+                    if status == 0 { "PASS" } else { "FAIL" },
+                    String::from_utf8_lossy(&text).trim()
+                )
+                .ok();
+                exit = if status == 0 { 20 } else { 21 };
+                break;
+            }
+        }
+
         if args.serial_stdout {
             let bytes = emu.take_serial();
             if !bytes.is_empty() {
@@ -241,6 +270,16 @@ fn run(args: Args) -> Result<u8, String> {
                 }
             }
         }
+    }
+
+    if args.blargg_mem && exit == 0 {
+        writeln!(
+            out,
+            "blargg-mem: no result within {} frames → FAIL",
+            args.frames
+        )
+        .ok();
+        exit = 21;
     }
 
     if args.mooneye && exit == 0 {

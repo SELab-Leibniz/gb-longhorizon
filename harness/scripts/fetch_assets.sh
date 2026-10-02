@@ -30,6 +30,11 @@ cp -r "$TMP/blargg/cpu_instrs"  "$ROOT/roms/test/blargg/"
 cp -r "$TMP/blargg/instr_timing" "$ROOT/roms/test/blargg/"
 cp -r "$TMP/blargg/mem_timing"   "$ROOT/roms/test/blargg/"
 cp    "$TMP/blargg/halt_bug.gb"  "$ROOT/roms/test/blargg/"
+# Memory-reporting Blargg suites (status at $A000): audio and the OAM bug.
+mkdir -p "$ROOT/roms/test/blargg-mem"
+cp -r "$TMP/blargg/dmg_sound" "$ROOT/roms/test/blargg-mem/"
+cp -r "$TMP/blargg/oam_bug"   "$ROOT/roms/test/blargg-mem/"
+find "$ROOT/roms/test/blargg-mem" -type f ! -name '*.gb' -delete
 # Keep only .gb files; drop source, readmes and the individual
 # cpu_instrs/individual ROMs are kept because they localise failures.
 find "$ROOT/roms/test/blargg" -type f ! -name '*.gb' -delete

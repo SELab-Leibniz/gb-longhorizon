@@ -1,0 +1,64 @@
+{
+ "frames": 1700,
+ "sample_every": 60,
+ "window": 2,
+ "robust": [
+  60,
+  120,
+  180
+ ],
+ "input_sensitive": [
+  240,
+  300,
+  360,
+  420,
+  480,
+  540,
+  600,
+  660,
+  720,
+  780,
+  840,
+  900,
+  960,
+  1020,
+  1080,
+  1140,
+  1200,
+  1260,
+  1320,
+  1380,
+  1440,
+  1500,
+  1560,
+  1620,
+  1680
+ ],
+ "variants": [
+  {
+   "boot_delay": 0,
+   "input_shift": 1
+  },
+  {
+   "boot_delay": 0,
+   "input_shift": -1
+  },
+  {
+   "boot_delay": 37,
+   "input_shift": 0
+  },
+  {
+   "boot_delay": 101,
+   "input_shift": 0
+  },
+  {
+   "boot_delay": 173,
+   "input_shift": 1
+  },
+  {
+   "boot_delay": 59,
+   "input_shift": -1
+  }
+ ],
+ "reference_commit": "213a12ce93d66b105a113debd9396306066a7cfc"
+}

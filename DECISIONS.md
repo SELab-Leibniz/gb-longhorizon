@@ -6,23 +6,30 @@ when you make a choice the next person would otherwise have to rediscover.
 
 ---
 
-## D1 — Cycle model: T-cycles, instruction-granular stepping
+## D1 — Cycle model: T-cycles, M-cycle-accurate bus
 
 **Decision.** All timing is counted in T-cycles (4 194 304 Hz). The CPU
-executes one whole instruction per `step`, returns the T-cycles it consumed,
-and the MMU then advances every peripheral by that many cycles in one
-`tick(cycles)` call. Peripherals must behave correctly when ticked in
-chunks of 4–24 cycles.
+drives the clock: every memory access an instruction makes goes through
+`Mmu::cycle_read` / `Mmu::cycle_write`, which advance every peripheral by
+one M-cycle (4 T-cycles) *as part of the access*, and every internal delay
+cycle calls `Mmu::idle_cycle`. So when an instruction's second M-cycle reads
+an operand, the timer, PPU, OAM DMA and serial have already advanced by
+exactly one M-cycle. `Cpu::step` returns the T-cycles it consumed for
+bookkeeping only; the facade never ticks peripherals itself.
 
-**Why.** Instruction-granular stepping is enough to pass Blargg, dmg-acid2
-and the large majority of Mooneye acceptance tests. Per-M-cycle memory
-access timing (needed for the strictest `ppu/` Mooneye tests) can be added
-inside `Cpu::step` later without changing the facade, because `tick` is
-already cycle-based.
+**Why.** Real hardware interleaves memory accesses with peripheral activity
+inside an instruction. Blargg's `mem_timing` and roughly a third of the
+Mooneye acceptance tests (`call_timing`, `push_timing`, `oam_dma_timing`,
+`div_timing`, `ei_timing`, …) measure *on which M-cycle* an access happens;
+ticking peripherals after a whole instruction makes them impossible to pass.
 
-**Consequence.** `Emulator::step_frame` loops `step_instruction` until
-70 224 cycles have elapsed; frames may overrun by up to one instruction,
-which is acceptable because the PPU tracks its own position.
+**Consequence.** `Mmu::read`/`write` remain as untimed accessors (for OAM
+DMA's source reads, debugging, save states). Instruction timings come from
+the per-M-cycle access pattern in `docs/opcodes.json` plus Pan Docs.
+`Emulator::step_frame` loops `step_instruction` until 70 224 T-cycles have
+elapsed; a frame may overrun by up to one instruction, which is fine because
+the PPU tracks its own position. Sub-M-cycle (T-cycle) PPU accuracy is
+*not* required (Mooneye `acceptance/ppu/` is a stretch goal).
 
 ## D2 — Peripherals report interrupts by return value
 

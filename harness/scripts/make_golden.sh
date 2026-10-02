@@ -7,8 +7,9 @@
 #   harness/golden/<game>.input    — the input script (you write these)
 #
 # Both emulators hash the 160×144 2-bit shade buffer with FNV-1a-64, so the
-# numbers are directly comparable to `gb --hash` output. Frame alignment
-# between emulators is ±1–2 frames; grade.py matches within a window.
+# numbers are directly comparable to `gb --hash` output. The reference runs
+# with power-on RAM zeroed (deterministic); grade.py only grades the
+# timing-robust frames listed in <game>.robust.json, within a ±2 frame window.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -29,21 +30,14 @@ echo "==> dmg-acid2"
 tail -1 "$TMP/acid2/hashes.txt" | cut -d' ' -f2 > "$ROOT/roms/test/acid2/expected.fnv"
 echo "    expected.fnv = $(cat "$ROOT/roms/test/acid2/expected.fnv")"
 
-echo "==> homebrew games"
-shopt -s nullglob
-for rom in "$ROOT"/roms/games/*.gb; do
-  name="$(basename "$rom" .gb)"
-  script="$GOLDEN/$name.input"
-  if [[ ! -f "$script" ]]; then
-    echo "    $name: no input script at $script — skipping (write one; see gb-cli for the format)"
-    continue
-  fi
-  # Run 10 s past the last scripted input.
-  frames="$(awk '!/^#/ && NF {f=$1} END {print f+600}' "$script")"
-  "$RUNNER" "$rom" "$frames" "$script" "$TMP/$name" "${BOOT_ARGS[@]}" --dump-every 0 2>/dev/null
-  cp "$TMP/$name/hashes.txt" "$GOLDEN/$name.fnv"
-  echo "    $name: $frames frames"
-done
-
 cp "$ROOT/harness/ref/bin/SAMEBOY_COMMIT" "$GOLDEN/SAMEBOY_COMMIT" 2>/dev/null || true
+
+echo "==> homebrew games: base hashes + timing-robust frame sets"
+# Runs each game under several boot-phase / input-timing perturbations and
+# keeps only the sample frames all of them agree on (see the script header).
+python3 "$ROOT/harness/scripts/make_game_goldens.py" --runner "$RUNNER" --roms "$ROOT/roms/games" --golden "$GOLDEN"
+
+echo "==> reference screenshots for the manual-review page"
+rm -rf "$GOLDEN/screens"
+python3 "$ROOT/harness/scripts/screenshots.py" --reference "$RUNNER" --roms "$ROOT/roms" --golden "$GOLDEN"
 echo "done -> $GOLDEN"

@@ -12,11 +12,12 @@ use crate::{cartridge::Cartridge, LoadError, CYCLES_PER_FRAME, FRAME_PIXELS};
 /// Outcome of executing one instruction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepResult {
-    /// Instruction executed; carries the number of T-cycles it took.
+    /// Instruction executed; carries the number of T-cycles it took (already
+    /// applied to the peripherals by the CPU's bus accesses).
     Ran(u32),
-    /// The CPU executed `LD B,B` (opcode 0x40). Test ROMs from the Mooneye
-    /// suite use this as a software breakpoint to signal completion; the
-    /// harness inspects the registers when it sees this.
+    /// The CPU executed `LD B,B` (opcode 0x40, 4 T-cycles, already ticked).
+    /// Test ROMs from the Mooneye suite use this as a software breakpoint to
+    /// signal completion; the harness inspects the registers when it sees this.
     Breakpoint,
 }
 
@@ -45,13 +46,10 @@ impl Emulator {
     }
 
     /// Execute exactly one instruction (plus any interrupt dispatch that
-    /// precedes it) and advance every peripheral by the same number of cycles.
+    /// precedes it). The CPU advances the peripherals itself, one M-cycle per
+    /// bus access (DECISIONS.md D1); this method does not tick anything.
     pub fn step_instruction(&mut self) -> StepResult {
-        let result = self.cpu.step(&mut self.mmu);
-        if let StepResult::Ran(cycles) = result {
-            self.mmu.tick(cycles);
-        }
-        result
+        self.cpu.step(&mut self.mmu)
     }
 
     /// Run until one full frame (70 224 T-cycles) has elapsed and copy the
@@ -66,8 +64,8 @@ impl Emulator {
                 StepResult::Ran(c) => elapsed += c,
                 StepResult::Breakpoint => {
                     hit_breakpoint = true;
-                    // `LD B,B` is still a 4-cycle instruction on hardware.
-                    self.mmu.tick(4);
+                    // `LD B,B` is a 4-cycle instruction; its fetch already
+                    // ticked the bus, so only account for the time here.
                     elapsed += 4;
                 }
             }
@@ -120,6 +118,13 @@ impl Emulator {
         self.cpu.load_state(state, &mut cursor)?;
         self.mmu.load_state(state, &mut cursor)?;
         Ok(())
+    }
+
+    /// Untimed read of one bus address (no peripheral advance). Used by the
+    /// harness to read results that test ROMs leave in memory (Blargg's
+    /// `dmg_sound` / `oam_bug` write theirs to cartridge RAM at $A000).
+    pub fn peek(&self, addr: u16) -> u8 {
+        self.mmu.read(addr)
     }
 
     /// Cartridge RAM contents (battery-backed saves), if the cartridge has RAM.

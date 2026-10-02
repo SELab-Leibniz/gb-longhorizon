@@ -31,3 +31,5 @@ __pycache__/
 /harness/harbor/task/environment/po/po_agent.py
 /harness/harbor/task/instruction.md
 /jobs/
+/harness/harbor/task/environment/scaffold.tar
+/harness/harbor/task/tests/screenshots.py
