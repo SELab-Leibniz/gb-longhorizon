@@ -83,7 +83,9 @@ def tier0(co):
     code, out, err, secs = sh(["cargo", "fmt", "--check"], co, timeout=120)
     r["fmt"] = {"ok": code == 0}
     code, out, err, secs = sh([str(co / "target/release/gb"), "--help"], co, timeout=30)
-    r["cli_help"] = {"ok": code == 0 and "--rom" in out}
+    # the frozen CLI prints usage to stderr and exits 1 for --help; any non-panic
+    # exit that shows the usage text counts
+    r["cli_help"] = {"ok": code in (0, 1) and "--rom" in (out + err)}
     # Harness files must be byte-identical to the frozen originals.
     frozen = {
         "gb-core/tests/rom_suite.rs": FROZEN_DIR / "gb-core/tests/rom_suite.rs",
