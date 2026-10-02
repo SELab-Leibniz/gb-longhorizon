@@ -409,6 +409,12 @@ fn mealybug_dmg() {
         run_family("mealybug-dmg", |p, rom| run_screenshot(p, rom, Model::Dmg)),
     );
 }
+
+#[test]
+fn acid2() {
+    if std::env::var_os("GB_SKIP_ROMS").is_some() {
+        return;
+    }
     let dir = roms_root().join("acid2");
     let rom_path = dir.join("dmg-acid2.gb");
     let expected_path = dir.join("expected.fnv");
