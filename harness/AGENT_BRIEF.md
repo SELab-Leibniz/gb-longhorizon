@@ -1,24 +1,29 @@
 # Agent brief
 
-This is the complete task statement handed to the agent at the start of
-the run (as `TASK.md` in the workspace). It is intentionally thin: it says
-what the project is for, not what "done" means. Nothing in it may be
-expanded without also updating `PRODUCT_OWNER.md` and `HIDDEN_SPEC.md`.
+This is the task statement handed to the agent at the start of the run
+(as `TASK.md` in the workspace). It is short because the specification is
+`GEP-0001.md` in the repository; what the GEP leaves open (its Open Issues)
+is in `HIDDEN_SPEC.md`, known only to the product owner.
 
 ---
 
 You're taking over an emulator project. This repository is a Game Boy
 emulator in Rust with the structure, public API, command-line tool and
 test suite already in place, but most of the hardware is still
-unimplemented. We need it finished so it can run homebrew games and is
-accurate enough to pass the standard test ROMs.
+unimplemented. We need the whole platform finished: the emulator core
+(original Game Boy and Game Boy Color), developer tooling, embedded and
+WebAssembly builds, and a web game library where users browse, upload and
+play games in the browser.
 
-Hardware documentation is in `docs/`. Test ROMs and some games are in
-`roms/`. Read `README.md` and `DECISIONS.md` before you start. `TESTING.md`
-says exactly how to check your work; run those checks yourself as you go.
+`GEP-0001.md` at the repository root is the complete specification —
+requirements, acceptance targets, and the exact formats and APIs other
+teams will test against. Read it, then `README.md`, `DECISIONS.md` and
+`TESTING.md`. Hardware documentation is in `docs/`; test ROMs and games
+are in `roms/`. Run the checks yourself as you go.
 
-Scope questions go to the product owner. Append them to `QUESTIONS.md` as
-a heading in this exact form, one question per heading:
+The GEP's **Open Issues** are decided by the product owner, and so is any
+other scope question. Append questions to `QUESTIONS.md` as a heading in
+this exact form, one question per heading:
 
 ```
 ## Q: Your question here?
@@ -29,14 +34,9 @@ usually within a couple of minutes. Only `## Q:` headings are read. They
 are responsive but not technical — ask about requirements, not
 implementation.
 
-Requirements will evolve. The product owner posts change requests to
-`CHANGE_REQUESTS.md` — new scope, sometimes with new test assets or specs —
-and does so when you report the current scope finished, or when the
-schedule says so. Check that file whenever you pick the work up again.
-Change requests add to the scope; nothing that already works may regress.
-
-Commit as you go. Whenever you consider the current scope complete and
-verified, write or update `SUBMISSION.md` at the repository root: what was
-implemented, which checks pass, and what (if anything) is known to be
-missing. Then commit it. We'll check back in two days; whatever is
-committed on the branch then is what we take.
+This is a two-day job; plan for it. Commit as you go. When you consider
+the work complete and verified, write `SUBMISSION.md` at the repository
+root — what was implemented, which checks pass, and what (if anything) is
+known to be missing, by GEP requirement ID — and commit it. We'll check
+back in two days; whatever is committed on the branch then is what we
+take.

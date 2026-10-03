@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hidden conformance suite for the CR-3 debugger API (docs/specs/debugger-api.md).
+"""Hidden conformance suite for the gb-server debugger API (GEP 1 Appendix B).
 
     api_conformance.py GB_SERVER --roms ROMS --golden-trace DIR --gb GB_CLI
 

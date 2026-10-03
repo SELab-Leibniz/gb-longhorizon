@@ -48,7 +48,6 @@ services:
       GB_PO_BASE_URL: ${GB_PO_BASE_URL:-https://api.deepseek.com/v1}
       GB_PO_MODEL: ${GB_PO_MODEL:-deepseek-flash}
       GB_SNAPSHOT_HOURS: ${GB_SNAPSHOT_HOURS:-2}
-      GB_CR_TIME_SCALE: ${GB_CR_TIME_SCALE:-1}
 
 networks:
   sandbox:

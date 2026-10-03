@@ -28,8 +28,9 @@ DMA's source reads, debugging, save states). The per-M-cycle access pattern
 of every instruction is in `docs/gbctr/chapter/cpu/instruction-set.typ`.
 `Emulator::step_frame` loops `step_instruction` until 70 224 T-cycles have
 elapsed; a frame may overrun by up to one instruction, which is fine because
-the PPU tracks its own position. Sub-M-cycle (T-cycle) PPU accuracy is
-*not* required (Mooneye `acceptance/ppu/` is a stretch goal).
+the PPU tracks its own position. The CPU/bus model stays M-cycle based; the
+PPU itself must be accurate to the pixel (GEP 1 §4), which it can be while
+being clocked one M-cycle (4 dots) at a time.
 
 ## D2 — Peripherals report interrupts by return value
 

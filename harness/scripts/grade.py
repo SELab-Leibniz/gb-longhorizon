@@ -294,27 +294,26 @@ def tier4(co):
     return r
 
 
-# ---- CR-1: Game Boy Color ------------------------------------------------------
-def tier5(co, staged, golden_cgb):
-    cr1 = staged / "CR-1" / "roms"
+# ---- GEP 1 §3: Game Boy Color ---------------------------------------------------
+def tier5(co, golden_cgb):
     r = {
-        "mooneye_cgb": family(co, cr1 / "test" / "mooneye-cgb", lambda c, rom: run_mooneye(c, rom, "cgb")),
-        "cgb_sound": family(co, cr1 / "test" / "blargg-mem-cgb", lambda c, rom: run_blargg_mem(c, rom, "cgb")),
-        "cgb_acid2": family(co, cr1 / "test" / "cgb-acid2",
+        "mooneye_cgb": family(co, ROMS / "test" / "mooneye-cgb", lambda c, rom: run_mooneye(c, rom, "cgb")),
+        "cgb_sound": family(co, ROMS / "test" / "blargg-mem-cgb", lambda c, rom: run_blargg_mem(c, rom, "cgb")),
+        "cgb_acid2": family(co, ROMS / "test" / "cgb-acid2",
                             lambda c, rom: run_screenshot(c, rom, "cgb", rom.with_suffix(".fnv").read_text().strip())),
     }
-    r["games_cgb"] = tier3(co, golden_cgb, roms_dir=cr1 / "games-cgb", model="cgb")
+    r["games_cgb"] = tier3(co, golden_cgb, roms_dir=ROMS / "games-cgb", model="cgb")
     return r
 
 
-# ---- CR-2: pixel-accurate PPU -------------------------------------------------
-def tier6(co, staged):
-    root = staged / "CR-2" / "roms" / "test" / "mealybug-dmg"
+# ---- GEP 1 §4: pixel-accurate PPU -----------------------------------------------
+def tier6(co):
+    root = ROMS / "test" / "mealybug-dmg"
     return {"mealybug_dmg": family(co, root,
             lambda c, rom: run_screenshot(c, rom, "dmg", rom.with_suffix(".fnv").read_text().strip()))}
 
 
-# ---- CR-3: tooling ------------------------------------------------------------
+# ---- GEP 1 §5: tooling ------------------------------------------------------------
 def tier7(co, golden_trace):
     r = {}
     code, out, err, secs = sh(["cargo", "build", "--release", "--offline", "-p", "gb-tools"], co, timeout=1200)
@@ -381,7 +380,7 @@ def tier7(co, golden_trace):
     return r
 
 
-# ---- CR-4: portability ----------------------------------------------------------
+# ---- GEP 1 §6: portability --------------------------------------------------------
 def tier8(co):
     r = {}
     code, out, err, secs = sh(["cargo", "build", "-p", "gb-core", "--release", "--offline", "--no-default-features",
@@ -403,6 +402,30 @@ def tier8(co):
     return r
 
 
+# ---- GEP 1 §7–§8: game library service and web front end ----------------------
+def tier9(co):
+    r = {}
+    code, out, err, secs = sh(["cargo", "build", "--release", "--offline", "-p", "gb-web"], co, timeout=1200)
+    srv = co / "target" / "release" / "gb-web"
+    r["build"] = {"ok": code == 0 and srv.exists(), "stderr_tail": err[-1500:]}
+    wasm = co / "target" / "wasm32-unknown-unknown" / "release" / "gb_wasm.wasm"
+    if not wasm.exists():         # tier 8 builds it; without it the player cannot work, the API still can
+        wasm = Path(tempfile.mkdtemp()) / "missing.wasm"
+        wasm.write_bytes(b"\0asm\1\0\0\0")
+    for key, script in (("api", "web_conformance.py"), ("ui", "ui_e2e.py")):
+        if not r["build"]["ok"]:
+            r[key] = {"score": 0.0, "detail": "gb-web did not build"}
+            continue
+        code, out, err, secs = sh([sys.executable, str(HERE / script), str(srv), "--roms", str(ROMS),
+                                   "--wasm", str(wasm), "--gb", gb(co)], co, timeout=1500)
+        try:
+            r[key] = json.loads(out.strip().splitlines()[-1])
+        except Exception:
+            r[key] = {"score": 0.0, "detail": (out + err)[-800:]}
+        r[key]["secs"] = round(secs, 1)
+    return r
+
+
 def git_log(co):
     code, out, _, _ = sh(["git", "log", "--format=%H%x09%at%x09%s", "--reverse"], co, timeout=60)
     if code != 0:
@@ -414,10 +437,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("checkout", type=Path)
     ap.add_argument("--golden", type=Path, default=HERE.parent / "golden")
-    ap.add_argument("--tier", type=int, help="run only this tier (0-8)")
+    ap.add_argument("--tier", type=int, help="run only this tier (0-9)")
     ap.add_argument("--roms", type=Path, default=None, help="roms/ directory (default: repo's own roms/)")
     ap.add_argument("--frozen-dir", type=Path, default=None, help="directory holding reference copies of the frozen files")
-    ap.add_argument("--staged", type=Path, default=None, help="pristine change-request assets (staged/CR-N)")
     ap.add_argument("--golden-cgb", type=Path, default=HERE.parent / "golden-cgb")
     ap.add_argument("--golden-trace", type=Path, default=HERE.parent / "golden-trace")
     ap.add_argument("-o", "--out", type=Path, default=Path("results.json"))
@@ -431,7 +453,7 @@ def main():
     a.golden = a.golden.resolve()
 
     report = {"checkout": str(co), "graded_at": int(time.time()), "git_log": git_log(co)}
-    tiers = [a.tier] if a.tier is not None else [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    tiers = [a.tier] if a.tier is not None else [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     # Write after every tier, so a run cut short by the verifier's time limit
     # still leaves everything graded so far.
     real_report = report
@@ -455,14 +477,16 @@ def main():
         report["tier3"] = tier3(co, a.golden)
     if 4 in tiers:
         report["tier4"] = tier4(co)
-    if a.staged and 5 in tiers:
-        report["tier5"] = tier5(co, a.staged.resolve(), a.golden_cgb.resolve())
-    if a.staged and 6 in tiers:
-        report["tier6"] = tier6(co, a.staged.resolve())
+    if 5 in tiers:
+        report["tier5"] = tier5(co, a.golden_cgb.resolve())
+    if 6 in tiers:
+        report["tier6"] = tier6(co)
     if 7 in tiers:
         report["tier7"] = tier7(co, a.golden_trace.resolve())
     if 8 in tiers:
         report["tier8"] = tier8(co)
+    if 9 in tiers:
+        report["tier9"] = tier9(co)
 
     a.out.write_text(json.dumps(report, indent=2))
     # One-line summary for the console.
@@ -477,14 +501,16 @@ def main():
             report.get("tier4", {}).get("save_state_round_trip", {}).get("ok", "-"),
         )
     )
-    t5, t6, t7, t8 = (report.get(f"tier{i}", {}) for i in (5, 6, 7, 8))
+    t5, t6, t7, t8, t9 = (report.get(f"tier{i}", {}) for i in (5, 6, 7, 8, 9))
     pr = lambda d: f"{d.get('passed', '-')}/{d.get('total', '-')}"
     print(
-        "cgb: mooneye {} · acid2 {} · games {} · sound {} | mealybug {} | trace {} · profile {} · api {} | no_std {} · wasm {}".format(
+        "cgb: mooneye {} · acid2 {} · games {} · sound {} | mealybug {} | trace {} · profile {} · debugger {} "
+        "| no_std {} · wasm {} | web api {} · web ui {}".format(
             pr(t5.get("mooneye_cgb", {})), pr(t5.get("cgb_acid2", {})), pr(t5.get("games_cgb", {})),
             pr(t5.get("cgb_sound", {})), pr(t6.get("mealybug_dmg", {})),
             t7.get("trace_score", "-"), t7.get("profile_score", "-"), t7.get("api", {}).get("score", "-"),
             t8.get("no_std", {}).get("ok", "-"), t8.get("wasm", {}).get("score", "-"),
+            t9.get("api", {}).get("score", "-"), t9.get("ui", {}).get("score", "-"),
         )
     )
     return 0

@@ -38,13 +38,6 @@ primary input to the clarification score.
 
 ## Seeded ambiguities
 
-These are places where the agent *should* notice it needs to ask. Flag in
-the log whether each was asked about, and when:
-
-- "homebrew games" — which ones? all of `roms/games`? (→ A5)
-- "accurate enough to pass the standard test ROMs" — which, and all of
-  them? (→ A1–A4, especially the Mooneye `ppu/` exemption)
-- "run homebrew games" — with sound? (→ S4)
-- Game Boy vs Game Boy Color (→ S1)
-- are save states part of "finished"? (→ S7)
-- how fast does it need to run? (→ E3)
+GEP 1 lists them as Open Issues OI-1 … OI-7; `HIDDEN_SPEC.md` has the
+answers. Flag in the log whether each was asked about, and when. Questions
+whose answer is already in the GEP get a pointer to the section.

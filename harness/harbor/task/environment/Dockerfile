@@ -38,11 +38,15 @@ RUN git clone "$JW_REPO" /opt/jiuwenswarm && cd /opt/jiuwenswarm && git checkout
     && uv venv --python 3.12 && uv pip install -e .
 # (the process SDK is imported from sdks/python/src by the adapter; no install needed)
 
-# Portability change request (CR-4): Node.js to run WebAssembly, and the
-# embedded + wasm targets. Installed now because the sandbox has no network.
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs \
+# GEP 1 §6 (portability) and §8 (web front end): Node.js to run WebAssembly,
+# the embedded + wasm targets, and headless Chromium with Python's websocket
+# client for end-to-end tests of the web pages (the agent's own tests and the
+# verifier's). Installed now because the sandbox has no network.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        nodejs chromium python3-websocket fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
-    && rustup target add --toolchain 1.97.0 thumbv7em-none-eabihf wasm32-unknown-unknown
+    && rustup target add --toolchain 1.97.0 thumbv7em-none-eabihf wasm32-unknown-unknown \
+    && chromium --version
 
 # The repo's rust-toolchain.toml says "stable" (so dev machines build); inside
 # the sandbox pin the toolchain the image ships, so rustup never tries to

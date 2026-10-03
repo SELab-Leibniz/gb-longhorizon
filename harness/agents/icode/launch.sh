@@ -46,8 +46,8 @@ log() { printf '{"t":%s,"event":"%s"%s}\n' "$(date +%s)" "$1" "${2:-}" >> "$LOG"
 "$PY" "$HERE/make_profile.py" --home "$HOME" \
       --provider "$ICODE_PROVIDER" --model "$ICODE_MODEL" ${ICODE_BASE_URL:+--base-url "$ICODE_BASE_URL"}
 
-CONTINUE_PROMPT='Continue working on the task in TASK.md. First check QUESTIONS.md for new answers from the product owner, CHANGE_REQUESTS.md (if present) for new or changed requirements, and git log / test results for the current state. Keep going until everything is complete and verified; say DONE only then.'
-RECHECK_PROMPT='Re-verify the project against TASK.md and CHANGE_REQUESTS.md (if present): look for new change requests or product-owner answers, run the full test suite, fix any regressions, and close remaining gaps. If everything passes and nothing is left, say DONE.'
+CONTINUE_PROMPT='Continue working on the task in TASK.md. First check QUESTIONS.md for new answers from the product owner, and git log / test results for the current state. Keep going until everything is complete and verified; say DONE only then.'
+RECHECK_PROMPT='Re-verify the project against TASK.md and GEP-0001.md: look for new product-owner answers, run every check in TESTING.md and the GEP acceptance table, fix any regressions, and close remaining gaps. If everything passes and nothing is left, say DONE.'
 
 # ---- process control ---------------------------------------------------
 # iCode renames its process (it shows up as "chrys"), so never match by name:

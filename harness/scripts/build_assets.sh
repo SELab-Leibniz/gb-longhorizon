@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 # Build the verifier's pristine copies of every test asset, once, on the host.
 #
-#   harness/scripts/build_assets.sh            -> harness/.assets/{roms,staged}
+#   harness/scripts/build_assets.sh            -> harness/.assets/roms
 #
-# Runs fetch_assets.sh (the agent-visible ROMs) and fetch_staged_assets.sh
-# (assets delivered with change requests) inside a throwaway container, so
-# the host needs only Docker. The results are copied into the Harbor task by
-# sync.sh: tests/roms + tests/staged for the verifier (uploaded only after the
-# agent stops, so the agent can never delete or edit the ROMs it is graded
-# on) and environment/po/staged for the product-owner sidecar.
+# Runs fetch_assets.sh (every ROM the agent also gets) inside a throwaway
+# container, so the host needs only Docker. sync.sh copies the result into the
+# Harbor task as tests/roms, uploaded only after the agent stops, so the agent
+# can never delete or edit the ROMs it is graded on.
 set -euo pipefail
 H="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="$(cd "$H/.." && pwd)"
@@ -20,6 +18,5 @@ docker run --rm -v "$REPO:/src:ro" -v "$OUT:/out" rust:1.97.0-bookworm bash -euc
   mkdir -p roms/test roms/games docs
   harness/scripts/fetch_assets.sh >/dev/null
   cp -r roms /out/roms
-  harness/scripts/fetch_staged_assets.sh harness/change_requests /out >/dev/null
-  echo "roms: $(find /out/roms -name "*.gb" | wc -l) ROMs; staged: $(find /out/staged -type f | wc -l) files"
+  echo "roms: $(find /out/roms -name "*.gb" -o -name "*.gbc" | wc -l) ROMs"
 '

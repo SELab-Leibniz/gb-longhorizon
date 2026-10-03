@@ -105,4 +105,7 @@ for name in "${!GAMES[@]}"; do
   echo "   $name.gb"
 done
 
+echo "==> Game Boy Color and pixel-PPU assets"
+"$ROOT/harness/scripts/fetch_extra_assets.sh" "$ROOT/harness/extra_assets" "$ROOT"
+
 echo "done. Review roms/LICENSES.md before building the image."

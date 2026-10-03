@@ -49,13 +49,13 @@ from jiuwenswarm_sdk.client import Client  # noqa: E402
 
 CONTINUE_PROMPT = (
     "Continue working on the task in TASK.md. First check QUESTIONS.md for new answers "
-    "from the product owner, CHANGE_REQUESTS.md (if present) for new or changed requirements, "
+    "from the product owner, "
     "and git log / test results for the current state. Keep going until everything is "
     "complete and verified; say DONE only then."
 )
 RECHECK_PROMPT = (
-    "Re-verify the project against TASK.md and CHANGE_REQUESTS.md (if present): look for new "
-    "change requests or product-owner answers, run the full test suite, fix any regressions, "
+    "Re-verify the project against TASK.md and GEP-0001.md: look for new product-owner "
+    "answers, run every check in TESTING.md and the GEP acceptance table, fix any regressions, "
     "and close remaining gaps. If everything passes and nothing is left, say DONE."
 )
 PROTOCOL = """

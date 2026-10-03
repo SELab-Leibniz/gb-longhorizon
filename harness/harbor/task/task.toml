@@ -10,7 +10,7 @@ artifacts = [
 
 [task]
 name = "selab/gb-longhorizon"
-description = "Finish a Rust Game Boy emulator from a skeleton, then absorb four mid-project change requests (Game Boy Color, pixel-accurate PPU, trace/profiler/debugger API, no_std + WebAssembly): 48-hour long-horizon coding task with a scripted product owner and ROM-, trace- and API-based acceptance tests."
+description = "Build the gb platform specified in GEP 1 from a Rust skeleton: an accurate Game Boy / Game Boy Color emulator, CPU trace/profiler/debugger API, no_std and WebAssembly builds, and a self-hosted game library web app with an in-browser player. 48-hour long-horizon coding task with a scripted product owner and ROM-, trace-, API- and browser-based acceptance tests."
 authors = [{ name = "SELab-Leibniz" }]
 keywords = ["rust", "emulator", "long-horizon", "48h", "requirements"]
 
@@ -50,6 +50,5 @@ GB_PO_API_KEY = "${GB_PO_API_KEY}"
 GB_PO_BASE_URL = "${GB_PO_BASE_URL:-https://api.deepseek.com/v1}"
 GB_PO_MODEL = "${GB_PO_MODEL:-deepseek-flash}"
 GB_SNAPSHOT_HOURS = "${GB_SNAPSHOT_HOURS:-2}"
-GB_CR_TIME_SCALE = "${GB_CR_TIME_SCALE:-1}"
 
 [verifier.env]

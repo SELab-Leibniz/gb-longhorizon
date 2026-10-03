@@ -1,7 +1,7 @@
 # Game Boy Color test games — provenance and licences
 
 From the Homebrew Hub database (https://github.com/gbdev/database) at the
-commit in `harness/change_requests/HUB_COMMIT`; redistributed unmodified
+commit in `harness/extra_assets/HUB_COMMIT`; redistributed unmodified
 under each author's licence.
 
 | file | title | licence | source |

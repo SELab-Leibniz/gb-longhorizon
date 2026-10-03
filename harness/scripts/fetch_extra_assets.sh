@@ -1,23 +1,19 @@
 #!/usr/bin/env bash
-# Build the test assets that change requests deliver into the agent's repo.
+# Fetch the Game Boy Color and pixel-PPU test assets into roms/.
 #
-#   fetch_staged_assets.sh CR_DIR OUT
+#   fetch_extra_assets.sh LISTS_DIR ROOT
 #
-# CR_DIR is harness/change_requests (lists, pins, expected hashes).
-# OUT/staged/CR-1/... and OUT/staged/CR-2/... mirror repo-relative paths; the
-# product-owner sidecar copies them into /work when it releases a request.
-# Runs inside the product-owner image at build time (the only place with
-# network that the agent cannot see), so the assets are invisible to the
-# agent until their change request is released.
+# LISTS_DIR is harness/extra_assets (pins, ROM lists, expected hashes). Writes
+# ROOT/roms/test/{mooneye-cgb,blargg-mem-cgb,cgb-acid2,mealybug-dmg} and
+# ROOT/roms/games-cgb. Called by fetch_assets.sh.
 set -euo pipefail
 CR="$(cd "$1" && pwd)"
-OUT="$2"
+ROOT="$(cd "$2" && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-S1="$OUT/staged/CR-1"; S2="$OUT/staged/CR-2"
-mkdir -p "$S1" "$S2"
+S1="$ROOT"; S2="$ROOT"
 
-echo "==> Mooneye (built from source with wla-dx) -> CR-1 mooneye-cgb"
+echo "==> Mooneye (built from source with wla-dx) -> mooneye-cgb"
 git clone -q https://github.com/vhelin/wla-dx "$TMP/wla"
 (cd "$TMP/wla" && mkdir -p build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. >/dev/null && make -j"$(nproc)" wla-gb wlalink >/dev/null)
 git clone -q https://github.com/Gekkio/mooneye-test-suite "$TMP/mts"
@@ -29,18 +25,18 @@ while IFS= read -r rel; do
   cp "$TMP/mts/build/$rel" "$S1/roms/test/mooneye-cgb/$rel"
 done < "$CR/mooneye-cgb.txt"
 
-echo "==> Blargg cgb_sound -> CR-1 blargg-mem-cgb"
+echo "==> Blargg cgb_sound -> blargg-mem-cgb"
 git clone -q --depth 1 https://github.com/retrio/gb-test-roms "$TMP/blargg"
 mkdir -p "$S1/roms/test/blargg-mem-cgb"
 cp -r "$TMP/blargg/cgb_sound" "$S1/roms/test/blargg-mem-cgb/"
 find "$S1/roms/test/blargg-mem-cgb" -type f ! -name '*.gb' -delete
 
-echo "==> cgb-acid2 -> CR-1"
+echo "==> cgb-acid2"
 mkdir -p "$S1/roms/test/cgb-acid2"
 curl -fsSL https://github.com/mattcurrie/cgb-acid2/releases/download/v1.1/cgb-acid2.gbc -o "$S1/roms/test/cgb-acid2/cgb-acid2.gbc"
 echo "78ce869d9b004a6f" > "$S1/roms/test/cgb-acid2/cgb-acid2.fnv"   # = the project's reference.png, pixel-exact
 
-echo "==> Game Boy Color games (Homebrew Hub, pinned) -> CR-1 roms/games-cgb"
+echo "==> Game Boy Color games (Homebrew Hub, pinned) -> roms/games-cgb"
 git clone -q --filter=blob:none --sparse https://github.com/gbdev/database "$TMP/hub"
 git -C "$TMP/hub" checkout -q "$(cat "$CR/HUB_COMMIT")"
 declare -A G=(
@@ -55,7 +51,7 @@ mkdir -p "$S1/roms/games-cgb"
 for k in "${!G[@]}"; do cp "$TMP/hub/entries/${G[$k]}" "$S1/roms/games-cgb/$k.gbc"; done
 cp "$CR/GAMES_CGB_LICENSES.md" "$S1/roms/games-cgb/LICENSES.md"
 
-echo "==> Mealybug Tearoom (DMG) -> CR-2 mealybug-dmg"
+echo "==> Mealybug Tearoom (DMG) -> mealybug-dmg"
 git clone -q https://github.com/mattcurrie/mealybug-tearoom-tests "$TMP/mbt"
 git -C "$TMP/mbt" checkout -q "$(cat "$CR/MEALYBUG_COMMIT")"
 mkdir -p "$TMP/mbroms" "$S2/roms/test/mealybug-dmg"
@@ -71,4 +67,4 @@ print(f"   {len(exp)} mealybug ROMs + expected hashes")
 PY
 cp "$TMP/mbt/LICENSE" "$S2/roms/test/mealybug-dmg/LICENSE"
 
-for d in "$S1" "$S2"; do echo "   $(basename "$d"): $(find "$d" -type f | wc -l) files"; done
+echo "   extra assets: $(find "$ROOT/roms/test/mooneye-cgb" "$ROOT/roms/test/blargg-mem-cgb" "$ROOT/roms/test/cgb-acid2" "$ROOT/roms/test/mealybug-dmg" "$ROOT/roms/games-cgb" -type f | wc -l) files"

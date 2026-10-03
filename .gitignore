@@ -6,6 +6,9 @@ Cargo.lock.bak
 /docs/pandocs/
 /docs/opcodes.json
 /roms/test/**/*.gb
+/roms/test/**/*.gbc
+/roms/test/cgb-acid2/
+/roms/test/mealybug-dmg/
 /roms/test/mooneye/SOURCE
 /roms/games/*.gb
 
@@ -26,6 +29,7 @@ __pycache__/
 /harness/harbor/task/tests/grade.py
 /harness/harbor/task/tests/golden/
 /harness/harbor/task/tests/frozen/
+/harness/harbor/task/environment/po/GEP-0001.md
 /harness/harbor/task/environment/po/HIDDEN_SPEC.md
 /harness/harbor/task/environment/po/PRODUCT_OWNER.md
 /harness/harbor/task/environment/po/po_agent.py
@@ -47,12 +51,9 @@ __pycache__/
 # verifier asset bundle (harness/scripts/build_assets.sh)
 /harness/.assets/
 /harness/harbor/task/tests/roms/
-/harness/harbor/task/tests/staged/
 /harness/harbor/task/tests/golden-cgb/
 /harness/harbor/task/tests/golden-trace/
 /harness/harbor/task/tests/*.py
 /harness/harbor/task/tests/*.js
-/harness/harbor/task/environment/po/staged/
-/harness/harbor/task/environment/po/change_requests/
 /harness/harbor/task/environment/po/sidecar_po.py
 /roms/games-cgb/

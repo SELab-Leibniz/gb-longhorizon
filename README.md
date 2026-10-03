@@ -1,19 +1,24 @@
 # gb — a Game Boy emulator in Rust
 
-This repository is a partially built Game Boy (DMG) emulator. The structure,
+This repository is a partially built Game Boy emulator. The structure,
 public interfaces, command-line tool and acceptance tests are in place; the
-hardware behaviour is not. Your job is to implement it.
+hardware behaviour is not. Your job is to build the whole platform specified
+in **`GEP-0001.md`** — the emulator core (DMG and Game Boy Color), developer
+tooling, embedded and WebAssembly builds, and a web game library with an
+in-browser player.
 
 ## What you are building
 
-A headless-first emulator that runs Game Boy homebrew games correctly. The
-core (`gb-core`) must pass the standard accuracy test ROMs, and the
-command-line runner (`gb-cli`) must drive it deterministically so that
-games can be tested by script. A small window front-end (`gb-gui`) exists
-for demos.
+`GEP-0001.md` is the complete specification: requirements, acceptance
+targets and the exact formats and APIs other teams will test against. Read
+it first. Its **Open Issues** are decided by the product owner — ask
+(see `TASK.md`) rather than guess.
 
-If anything about scope, priorities or acceptance is unclear, **ask the
-product owner**. Don't guess at requirements that aren't written down here.
+The core (`gb-core`) must pass the standard accuracy test ROMs, and the
+command-line runner (`gb-cli`) drives it deterministically so that games can
+be tested by script. A small window front-end (`gb-gui`) exists for demos.
+The crates `gb-tools`, `gb-wasm` and `gb-web` do not exist yet; you create
+them (GEP 1 §5–§8).
 
 ## Layout
 
@@ -33,12 +38,15 @@ gb-core/            emulator library — no dependencies, no unsafe
   tests/rom_suite.rs  acceptance suite (harness code — do not modify)
 gb-cli/             `gb` headless runner (harness code — do not modify)
 gb-gui/             demo window (optional, not built by default)
-docs/               Pan Docs, opcode table — your hardware reference
-roms/test/          Blargg, Mooneye, dmg-acid2 test ROMs + expected results
-roms/games/         homebrew games for manual and scripted testing
-DECISIONS.md        architectural decisions already taken — read first
+docs/               Pan Docs, opcode table, Gekkio's timing reference
+docs/specs/         reference CPU trace excerpt (GEP 1 Appendix A)
+roms/test/          Blargg, Mooneye (DMG + CGB), dmg-acid2, cgb-acid2,
+                    Mealybug Tearoom test ROMs + expected results
+roms/games/         DMG homebrew games for manual and scripted testing
+roms/games-cgb/     Game Boy Color homebrew games
+GEP-0001.md         the specification — start here
+DECISIONS.md        architectural decisions already taken
 TESTING.md          how to verify your work, step by step
-CHANGE_REQUESTS.md  scope changes from the product owner (watch it)
 ```
 
 ✓ = implemented, ✗ = `todo!()` stub with its interface and doc comment in place.
@@ -76,6 +84,6 @@ run. Expect everything to fail until the CPU and MMU exist.
 
 ## Where to start
 
-`DECISIONS.md`, then `docs/`, then `gb-core/src/emulator.rs` to see how the
-pieces are called. The module doc comments say what each component owns and
+`GEP-0001.md`, then `DECISIONS.md`, then `docs/`, then
+`gb-core/src/emulator.rs` to see how the pieces are called. The module doc comments say what each component owns and
 which test ROMs exercise it.

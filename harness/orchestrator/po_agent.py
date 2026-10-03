@@ -59,23 +59,15 @@ class ProductOwner:
         self.base_url = os.environ.get("GB_PO_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
         persona = (HARNESS / "PRODUCT_OWNER.md").read_text()
         spec = (HARNESS / "HIDDEN_SPEC.md").read_text()
+        # The specification the agent also has (repo root locally, /po in the sidecar).
+        gep = next((p for p in (HARNESS / "GEP-0001.md", HARNESS.parent / "GEP-0001.md") if p.exists()), None)
+        if gep is not None:
+            spec += "\n\n=== THE SPECIFICATION THE ENGINEER HAS (GEP-0001.md) ===\n" + gep.read_text()
         self.system = SYSTEM_TEMPLATE.format(persona=persona, spec=spec)
         self.po_log = run_dir / "po_log.jsonl"
         self.answered = 0
-        # Optional callable returning the text of the change requests released so
-        # far. The sidecar sets it from its own release record; without it we fall
-        # back to the workspace file (which the agent could edit).
-        self.released_provider = None
 
     # ---- LLM --------------------------------------------------------------
-
-    def released_context(self) -> str:
-        """Change requests already released to the engineer (they may ask about these)."""
-        try:
-            text = self.released_provider() if self.released_provider else self.backend.read_file("CHANGE_REQUESTS.md")
-        except Exception:
-            text = ""
-        return text.strip() or "(no change requests released yet)"
 
     def ask_llm(self, history, question: str) -> str:
         if not self.api_key:
@@ -84,9 +76,7 @@ class ProductOwner:
         for q, a in history[-10:]:
             messages.append({"role": "user", "content": q})
             messages.append({"role": "assistant", "content": a})
-        messages.append({"role": "user", "content":
-                         "[Context for the product owner, not from the engineer — change requests released so far:\n"
-                         + self.released_context() + "\n]\n\nEngineer's question:\n" + question})
+        messages.append({"role": "user", "content": question})
         body = json.dumps({"model": self.model, "messages": messages, "temperature": 0.2, "max_tokens": 400}).encode()
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions", data=body,

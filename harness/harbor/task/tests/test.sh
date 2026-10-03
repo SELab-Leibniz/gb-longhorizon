@@ -26,7 +26,6 @@ cd /work
 git log --format='%H%x09%at%x09%s' > "$OUT/git-log.txt" 2>/dev/null || true
 cp SUBMISSION.md "$OUT/SUBMISSION.md" 2>/dev/null || true
 cp QUESTIONS.md "$OUT/QUESTIONS.md" 2>/dev/null || true
-cp CHANGE_REQUESTS.md "$OUT/CHANGE_REQUESTS.md" 2>/dev/null || true
 
 # Grade the last COMMIT, not the working tree: the brief says "whatever is on
 # the branch is what we take", and a run cut off mid-edit must not be graded
@@ -42,7 +41,7 @@ echo "{\"working_tree_builds\": $WT, \"uncommitted_files\": $(git -C /work statu
 # Each step is capped so reward.json is always written within the verifier's
 # limit (task.toml: 9000 s); grade.py saves results after every tier.
 timeout -k 30 7200 python3 /tests/grade.py "$G" --roms /tests/roms --golden /tests/golden --frozen-dir /tests/frozen \
-        --staged /tests/staged --golden-cgb /tests/golden-cgb --golden-trace /tests/golden-trace \
+        --golden-cgb /tests/golden-cgb --golden-trace /tests/golden-trace \
         -o "$OUT/results.json" > "$OUT/grade-summary.txt" 2> "$OUT/grade-stderr.txt"
 GRADE_RC=$?
 
@@ -50,7 +49,7 @@ GRADE_RC=$?
 # emulator, save agent-vs-reference PNGs and an index.html under
 # /logs/verifier/screenshots (lands in <trial>/verifier/screenshots/).
 timeout -k 10 1200 python3 /tests/screenshots.py "$G" --roms /tests/roms --golden /tests/golden \
-        --staged /tests/staged --golden-cgb /tests/golden-cgb \
+        --golden-cgb /tests/golden-cgb \
         --out "$OUT/screenshots" > "$OUT/screenshots.log" 2>&1 || true
 
 python3 - "$OUT/results.json" "$OUT/reward.json" <<'PY'
@@ -63,6 +62,7 @@ def rate(d):
     t = d.get("total", 0); return (d.get("passed", 0) / t) if t else 0.0
 t0 = r.get("tier0", {}); t1 = r.get("tier1", {}); t2 = r.get("tier2", {}); t3 = r.get("tier3", {}); t4 = r.get("tier4", {})
 t5 = r.get("tier5", {}); t6 = r.get("tier6", {}); t7 = r.get("tier7", {}); t8 = r.get("tier8", {})
+t9 = r.get("tier9", {})
 build_ok = bool(t0.get("build", {}).get("ok"))
 frozen_ok = all((t0.get("frozen_files_unchanged") or {"x": False}).values())
 moon = t1.get("mooneye", {})
@@ -76,7 +76,7 @@ m = {
     "build":              1.0 if build_ok else 0.0,
     "lint_clean":         1.0 if (t0.get("clippy", {}).get("ok") and t0.get("fmt", {}).get("ok")) else 0.0,
     "frozen_unchanged":   1.0 if frozen_ok else 0.0,
-    # --- base scope: DMG emulator ---
+    # --- GEP 1 §2: emulator core (DMG) ---
     "blargg":             rate(t1.get("blargg", {})),           # CPU, instruction + memory timing
     "mooneye_acceptance": rate(moon.get("acceptance_excl_ppu", {})),
     "mooneye_mbc":        (rate(moon.get("mbc1", {})) + rate(moon.get("mbc5", {}))) / 2,
@@ -85,42 +85,49 @@ m = {
     "apu":                rate(bm.get("dmg_sound", {})),        # Blargg dmg_sound
     "determinism":        1.0 if t4.get("determinism", {}).get("ok") else 0.0,
     "save_state":         1.0 if t4.get("save_state_round_trip", {}).get("ok") else 0.0,
-    # --- CR-1: Game Boy Color ---
+    # --- §3: Game Boy Color ---
     "cgb_mooneye":        rate(t5.get("mooneye_cgb", {})),
     "cgb_acid2":          rate(t5.get("cgb_acid2", {})),
     "cgb_games":          t5.get("games_cgb", {}).get("mean_score", 0.0),
     "cgb_sound":          rate(t5.get("cgb_sound", {})),
-    # --- CR-2: pixel-accurate PPU ---
+    # --- §4: pixel-accurate PPU ---
     "mealybug":           rate(t6.get("mealybug_dmg", {})),
     "mooneye_ppu":        rate(moon.get("acceptance_ppu", {})),
     "oam_bug":            rate(bm.get("oam_bug", {})),
-    # --- CR-3: tooling ---
+    # --- §5: tooling ---
     "trace":              t7.get("trace_score", 0.0),           # matched prefix of each reference trace
     "profile":            t7.get("profile_score", 0.0),
     "debugger_api":       t7.get("api", {}).get("score", 0.0),  # hidden conformance suite
-    # --- CR-4: portability ---
+    # --- §6: portability ---
     "no_std":             1.0 if t8.get("no_std", {}).get("ok") else 0.0,
     "wasm":               t8.get("wasm", {}).get("score", 0.0),  # wasm frames == native frames
+    # --- §7–§8: game library service and web front end ---
+    "web_api":            t9.get("api", {}).get("score", 0.0),   # hidden 41-check API suite incl. Open Issues
+    "web_ui":             t9.get("ui", {}).get("score", 0.0),    # headless-Chromium end-to-end, 21 checks
 }
 # informational only (manual-review screenshots): fraction of ROMs that booted and rendered
 m["boots"] = (sum(1 for v in shots.values() if v.get("status") == "ok") / len(shots)) if shots else 0.0
-# Headline reward. Base scope 0.40, CR-1 0.20, CR-2 0.10, CR-3 0.17, CR-4 0.10,
-# lint 0.03. Zero if the build fails or the agent edited the frozen harness
-# files (tests then meaningless). Mealybug is not fully achievable even by
-# SameBoy (10/24), so CR-2 rewards partial progress.
-w = {"blargg": .09, "acid2": .05, "mooneye_acceptance": .08, "mooneye_mbc": .03, "games": .08,
-     "apu": .03, "save_state": .02, "determinism": .02,
-     "cgb_mooneye": .06, "cgb_acid2": .05, "cgb_games": .07, "cgb_sound": .02,
-     "mealybug": .05, "mooneye_ppu": .03, "oam_bug": .02,
-     "trace": .08, "profile": .02, "debugger_api": .07,
-     "no_std": .04, "wasm": .06,
+# Headline reward, by GEP 1 section: core 0.30, CGB 0.15, PPU 0.07, tooling
+# 0.13, portability 0.08, library service 0.14, front end 0.10, lint 0.03.
+# Zero if the build fails or the agent edited the frozen harness files (tests
+# then meaningless). Mealybug is not fully achievable even by SameBoy (10/24),
+# so the PPU phase rewards partial progress.
+w = {"blargg": .07, "acid2": .04, "mooneye_acceptance": .06, "mooneye_mbc": .02, "games": .06,
+     "apu": .02, "save_state": .02, "determinism": .01,
+     "cgb_mooneye": .04, "cgb_acid2": .04, "cgb_games": .05, "cgb_sound": .02,
+     "mealybug": .04, "mooneye_ppu": .02, "oam_bug": .01,
+     "trace": .06, "profile": .01, "debugger_api": .06,
+     "no_std": .03, "wasm": .05,
+     "web_api": .14, "web_ui": .10,
      "lint_clean": .03}
 # phase sub-scores for the report (each normalised to [0, 1])
-phases = {"base": ["blargg", "acid2", "mooneye_acceptance", "mooneye_mbc", "games", "apu", "save_state", "determinism"],
-          "cr1_gbc": ["cgb_mooneye", "cgb_acid2", "cgb_games", "cgb_sound"],
-          "cr2_ppu": ["mealybug", "mooneye_ppu", "oam_bug"],
-          "cr3_tooling": ["trace", "profile", "debugger_api"],
-          "cr4_portability": ["no_std", "wasm"]}
+phases = {"core": ["blargg", "acid2", "mooneye_acceptance", "mooneye_mbc", "games", "apu", "save_state", "determinism"],
+          "cgb": ["cgb_mooneye", "cgb_acid2", "cgb_games", "cgb_sound"],
+          "ppu": ["mealybug", "mooneye_ppu", "oam_bug"],
+          "tooling": ["trace", "profile", "debugger_api"],
+          "portability": ["no_std", "wasm"],
+          "library": ["web_api"],
+          "front_end": ["web_ui"]}
 for name, keys in phases.items():
     m["phase_" + name] = round(sum(m[k] * w[k] for k in keys) / sum(w[k] for k in keys), 4)
 assert abs(sum(w.values()) - 1.0) < 1e-9

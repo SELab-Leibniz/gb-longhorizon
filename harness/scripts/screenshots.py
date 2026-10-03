@@ -5,7 +5,7 @@
     screenshots.py --reference RUNNER --roms ROMS --golden GOLDEN [--every 300]
 
 Agent mode (used by the Harbor verifier, writes to /logs/verifier/screenshots):
-  for dmg-acid2 and each game in roms/games (plus, with --staged/--golden-cgb,
+  for dmg-acid2 and each game in roms/games (plus, with --golden-cgb,
   cgb-acid2 and the CGB games in CGB mode), run the agent's `gb` CLI with the
   game's input script, dump a frame every N frames, and write
     DIR/<game>/agent_NNNNNN.png      the agent's frame, 3x (DMG palette / CGB colour)
@@ -111,8 +111,8 @@ def targets(a):
         script = golden / f"{rom.stem}.input"
         yield (rom.stem, rom, (script if script.exists() else None),
                (script_frames(script) if script.exists() else 1800), "dmg", golden / "screens" / rom.stem)
-    if a.staged and a.golden_cgb:
-        cr1 = a.staged / "CR-1" / "roms"
+    if a.golden_cgb:
+        cr1 = roms
         acid = cr1 / "test" / "cgb-acid2" / "cgb-acid2.gbc"
         if acid.exists():
             yield "cgb-acid2", acid, None, 120, "cgb", a.golden_cgb / "screens" / "cgb-acid2"
@@ -219,7 +219,6 @@ def main():
     ap.add_argument("--out", type=Path)
     ap.add_argument("--every", type=int, default=300, help="capture a frame every N frames (default 300 = 5 s)")
     ap.add_argument("--reference", help="path to sameboy_runner: render reference screens instead")
-    ap.add_argument("--staged", type=Path, help="change-request assets (adds cgb-acid2 and the CGB games)")
     ap.add_argument("--golden-cgb", type=Path, help="golden data for the CGB games (input scripts, screens/)")
     a = ap.parse_args()
     a.roms, a.golden = a.roms.resolve(), a.golden.resolve()

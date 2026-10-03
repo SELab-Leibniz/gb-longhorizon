@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""CR-4 check: the WebAssembly build produces the same frames as the native build.
+"""GEP 1 §6 check: the WebAssembly build produces the same frames as the native build.
 
-    wasm_check.py GB_WASM.wasm --gb GB_CLI --roms ROMS [--staged STAGED]
+    wasm_check.py GB_WASM.wasm --gb GB_CLI --roms ROMS
 
-For each case (ROM, model, frames, held buttons) runs the module in Node.js
+For each case (ROM, model, frames, button schedule) runs the module in Node.js
 through the ABI in docs/specs/portability.md and the native `gb` CLI, and
 compares the FNV-1a-64 frame hashes. Prints one JSON line:
 {"score", "instantiates", "cases": {...}}.
@@ -41,8 +41,13 @@ function fnv(bytes) {
       new Uint8Array(e.memory.buffer, p, rom.length).set(rom);
       const st = e.gb_load(p, rom.length, c.model === "cgb" ? 1 : 0);
       if (st !== 0) { out[c.name] = { error: "gb_load returned " + st }; continue; }
-      e.gb_set_buttons(c.mask);
-      e.gb_run_frames(c.frames);
+      let f = 0;
+      e.gb_set_buttons(0);
+      for (const [at, mask] of c.schedule) {     // buttons change at the start of frame `at`
+        if (at > f) { e.gb_run_frames(at - f); f = at; }
+        e.gb_set_buttons(mask);
+      }
+      if (c.frames > f) e.gb_run_frames(c.frames - f);
       const len = e.gb_frame_len();
       out[c.name] = { hash: fnv(new Uint8Array(e.memory.buffer, e.gb_frame_ptr(), len)), len };
     } catch (err) { out[c.name] = { error: String(err && err.message || err) }; }
@@ -59,24 +64,23 @@ def main():
     ap.add_argument("wasm")
     ap.add_argument("--gb", required=True)
     ap.add_argument("--roms", type=Path, required=True)
-    ap.add_argument("--staged", type=Path)
     a = ap.parse_args()
+    # schedule: [(frame, [buttons])] — held from that frame on (like a `gb` input script)
     cases = [
-        {"name": "dmg-acid2", "rom": a.roms / "test/acid2/dmg-acid2.gb", "model": "dmg", "frames": 120, "buttons": []},
-        {"name": "tobudx-dmg", "rom": a.roms / "games/tobudx.gb", "model": "dmg", "frames": 400, "buttons": []},
-        {"name": "2048-start", "rom": a.roms / "games/2048.gb", "model": "dmg", "frames": 300, "buttons": ["START"]},
+        {"name": "dmg-acid2", "rom": a.roms / "test/acid2/dmg-acid2.gb", "model": "dmg", "frames": 120, "schedule": []},
+        {"name": "tobudx-dmg", "rom": a.roms / "games/tobudx.gb", "model": "dmg", "frames": 400, "schedule": []},
+        {"name": "2048-start", "rom": a.roms / "games/2048.gb", "model": "dmg", "frames": 300,
+         "schedule": [(180, ["START"]), (200, [])]},
+        {"name": "cgb-acid2", "rom": a.roms / "test/cgb-acid2/cgb-acid2.gbc", "model": "cgb", "frames": 60, "schedule": []},
+        {"name": "ucity-cgb", "rom": a.roms / "games-cgb/ucity.gbc", "model": "cgb", "frames": 400,
+         "schedule": [(180, ["START"]), (200, []), (300, ["A"]), (320, [])]},
     ]
-    if a.staged:
-        cases += [
-            {"name": "cgb-acid2", "rom": a.staged / "CR-1/roms/test/cgb-acid2/cgb-acid2.gbc", "model": "cgb", "frames": 60, "buttons": []},
-            {"name": "ucity-cgb", "rom": a.staged / "CR-1/roms/games-cgb/ucity.gbc", "model": "cgb", "frames": 400, "buttons": []},
-        ]
     cases = [c for c in cases if Path(c["rom"]).exists()]
     native = {}
     with tempfile.TemporaryDirectory() as td:
         for c in cases:
             script = Path(td) / f"{c['name']}.input"
-            script.write_text(f"0 {','.join(c['buttons'])}\n" if c["buttons"] else "")
+            script.write_text("".join(f"{at} {','.join(bs)}\n" for at, bs in c["schedule"]))
             p = subprocess.run([a.gb, "--rom", str(c["rom"]), "--frames", str(c["frames"]), "--model", c["model"],
                                 "--hash", "--input-script", str(script)], capture_output=True, text=True, timeout=600)
             m = re.search(r"final ([0-9a-f]{16})", p.stdout)
@@ -85,7 +89,8 @@ def main():
         js.write_text(JS)
         cj = Path(td) / "cases.json"
         cj.write_text(json.dumps([{"name": c["name"], "rom": str(c["rom"]), "model": c["model"], "frames": c["frames"],
-                                   "mask": sum(MASK[b] for b in c["buttons"])} for c in cases]))
+                                   "schedule": [[at, sum(MASK[b] for b in bs)] for at, bs in c["schedule"]]}
+                                  for c in cases]))
         p = subprocess.run(["node", str(js), a.wasm, str(cj)], capture_output=True, text=True, timeout=1800)
     try:
         res = json.loads(p.stdout.strip().splitlines()[-1])
