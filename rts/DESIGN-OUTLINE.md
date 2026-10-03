@@ -1,15 +1,19 @@
 # RTS showcase — design outline (draft for review)
 
-**Status:** draft v0.1, for review before any code is written.
+**Status:** draft v0.2, for review before any code is written.
 **Working title:** *Meridian* (an original game; the name is a placeholder).
 **Branch:** `rts-showcase` (reuses the showcase-v2 harness: product owner,
 issue waves and their delivery, verifier, diagnostics).
 
 Decisions taken so far:
-- the game is our own original design, adopting Red Alert's mechanics;
-- the base code and the reference simulation are written by us;
-- the agent gets a one-page brief with deliberate gaps;
-- the phases are as proposed below.
+- **Game:** our own original design, adopting Red Alert's mechanics.
+- **Code:** we write the base code and the reference simulation.
+- **Brief:** the agent gets a one-page brief with deliberate gaps.
+- **Phase order:** decided by us (§14).
+- **Technology:** a Rust simulation core with a JavaScript front end.
+- **Oracle:** a limited reference oracle in the sandbox (§18a).
+- **Later content:** aircraft in a later phase; superweapons in Phase 3.
+- **Human raters:** 2–3, including the project owner, rating blind.
 
 ---
 
@@ -127,10 +131,22 @@ numbers:
   - win and lose conditions.
 - **A mission browser** in the front end.
 
-**Phase 3 — Patch and polish** (change request plus bug reports):
+**Phase 3 — Superweapons and balance patch** (change request plus bug reports):
+- one superweapon per side, our own design on the archetypes: a teleport for
+  the Allies; temporary invulnerability or a missile strike for the Soviets.
+  Each comes with charge timers, power dependence, targeting rules and AI
+  use;
+- the area-hiding device;
 - a balance patch (numbers change; tests must follow the new numbers);
-- play-tester bug reports;
-- optionally the area-hiding device or one superweapon per side.
+- play-tester bug reports.
+
+**Phase 4 — Aircraft** (change request):
+- **Movement:** air units with their own movement layer (they ignore
+  terrain).
+- **Bases:** airfield and helipad buildings, landing, rearming and ammunition.
+- **Combat:** anti-air weapons and the warhead rules for air targets, and
+  aircraft use by the AI.
+- **Per side:** one transport or support aircraft and one attack aircraft.
 
 **Throughout (open-ended):**
 - skirmish AI strength;
@@ -278,8 +294,9 @@ a prompt, recorded, scored only once delivered).
 |---|---|---|
 | 0 | start | Allied game from the inherited code |
 | 1 | ~8 h | Soviet faction (CR-1) |
-| 2 | ~20 h | Mission system and one mission (CR-2) |
-| 3 | ~32 h | Balance patch and bug reports (CR-3); optional superweapons |
+| 2 | ~18 h | Mission system and one mission (CR-2) |
+| 3 | ~28 h | Superweapons, the area-hiding device, balance patch and bug reports (CR-3) |
+| 4 | ~38 h | Aircraft for both sides (CR-4) |
 | — | throughout | Bug reports in small waves; open-ended AI, pathfinding and speed |
 
 ## 15. The inherited codebase
@@ -308,13 +325,14 @@ a prompt, recorded, scored only once delivered).
 | Rule correctness (automated) | every hour (snapshots) and at the end | hidden exact scenarios per area and phase; earlier phases kept as regression checks |
 | Open-ended quality (automated) | every hour and at the end | win rate against the reference AIs; pathfinding benchmarks; speed with 500 units; interface checks in headless Chromium |
 | Product decisions (automated) | at the end | hidden checks of the definition-of-done items the product owner decides |
-| Human play-testing | at each phase checkpoint and at the end | blind A/B builds; at least 3 raters; scripted probe missions with pass/fail, then free play rated against a rubric |
+| Human play-testing | at each phase checkpoint and at the end | blind A/B builds (labels assigned at random, key kept until scoring, so the project owner rates blind too); 2–3 raters; scripted probe missions with pass/fail, then free play rated against a rubric |
 
 **Draft weights:**
-- rule correctness 40 % (Phase 0: 15, Phase 1: 12, Phase 2: 8, Phase 3: 5);
+- rule correctness 45 % (Phase 0: 15, Phase 1: 11, Phase 2: 8, Phase 3: 6,
+  Phase 4: 5, counted only once delivered);
 - open-ended quality 20 %;
 - product decisions 10 %;
-- human rating 25 %;
+- human rating 20 % (2–3 raters, so kept modest);
 - code health (build, lint, tests) 5 %.
 
 Validation before any run:
@@ -326,26 +344,42 @@ Validation before any run:
 
 ## 17. Technology and constraints
 
-- **Recommended:**
+- **Decided:**
   - simulation core in **Rust**: integer maths, compiled to WebAssembly for
-    the browser and natively for the grader, reusing the existing toolchain
-    and checks;
+    the browser and natively for the grader and the oracle;
   - front end in plain JavaScript and Canvas;
   - **no third-party dependencies** (the sandbox is offline).
-- **Alternative:** TypeScript or JavaScript throughout. It's simpler for the
-  front end, but determinism is harder to guarantee.
 - **Sandbox:** as now: offline, Rust, Node.js, headless Chromium, product
   owner over `QUESTIONS.md`, issue waves delivered as prompts.
 
-## 18. Open decisions
+## 18. Decided points
 
-1. Rust core + JavaScript front end (recommended), or JavaScript/TypeScript
-   only?
-2. A limited reference oracle in the sandbox (final state and frame hashes
-   for a scenario; no per-step traces), or none?
-3. Aircraft or naval units in a later phase, or not at all?
-4. Superweapons in Phase 3, or not at all?
-5. Who the human raters are, and how many. This decides how much the human
-   score can weigh.
-6. Rough size of the design document: about 25–40 pages of rules and
-   tables, written first, then reviewed before the reference is built.
+1. Rust core with a JavaScript front end.
+2. A limited reference oracle in the sandbox (§18a).
+3. Aircraft as Phase 4 (§5).
+4. Superweapons in Phase 3 (§5).
+5. 2–3 human raters, including the project owner, rating blind; the human
+   score is weighted 20 %.
+6. Design document size: **about 30 pages**. That is §§4–11 written out
+   as rules plus tables (units, buildings, weapons, warheads against armour,
+   economy, power), split by phase. It should be complete enough that every
+   graded behaviour is written down, and compact enough to fit easily in the
+   product owner's context.
+
+### 18a. The reference oracle in the sandbox
+
+`meridian-oracle`, built from our reference simulation:
+- **Input:** a scenario file and a command script.
+- **Output:** the **final canonical-state hash**, the **outcome** (who won,
+  or the step limit), and optionally a **frame hash** at given steps.
+- **What it does not give:** no per-step traces, no readable state, no
+  numbers.
+
+So the agent can check "does my simulation agree with the reference on this
+scenario?", but cannot read the rules off it; the rules still come from the
+product owner.
+
+**It only accepts content from phases already delivered:** it reads the
+released-phase record, the same notices the waves use. Phase 1 units are
+rejected until Phase 1 has been delivered, so the oracle cannot leak
+future content.
