@@ -1,0 +1,14 @@
+[package]
+name = "gb-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Game library service and in-browser player for the gb emulator"
+
+[[bin]]
+name = "gb-web"
+path = "src/main.rs"
+
+[dependencies]
+gb-core = { path = "../gb-core" }

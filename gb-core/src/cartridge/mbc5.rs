@@ -10,12 +10,15 @@
 
 use super::Mbc;
 use crate::emulator::StateError;
+use crate::prelude::*;
 
 /// MBC5 controller state.
 pub struct Mbc5 {
     rom_banks: usize,
     ram_banks: usize,
-    // TODO(agent): ram_enable, rom_bank (9 bits), ram_bank (4 bits).
+    ram_enable: bool,
+    rom_bank: u16,
+    ram_bank: u8,
 }
 
 impl Mbc5 {
@@ -24,6 +27,9 @@ impl Mbc5 {
         Self {
             rom_banks: (rom_size / 0x4000).max(1),
             ram_banks: (ram_size / 0x2000).max(if ram_size > 0 { 1 } else { 0 }),
+            ram_enable: false,
+            rom_bank: 1,
+            ram_bank: 0,
         }
     }
 
@@ -39,19 +45,51 @@ impl Mbc5 {
 }
 
 impl Mbc for Mbc5 {
-    fn read(&self, _rom: &[u8], _ram: &[u8], _addr: u16) -> u8 {
-        todo!("cartridge::mbc5::Mbc5::read")
+    fn read(&self, rom: &[u8], ram: &[u8], addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x3FFF => rom[addr as usize],
+            0x4000..=0x7FFF => {
+                let bank = (self.rom_bank as usize) % self.rom_banks;
+                rom[bank * 0x4000 + (addr as usize - 0x4000)]
+            }
+            0xA000..=0xBFFF if self.ram_enable && !ram.is_empty() => {
+                let bank = (self.ram_bank as usize & 0x0F) % self.ram_banks;
+                ram[bank * 0x2000 + (addr as usize - 0xA000)]
+            }
+            _ => 0xFF,
+        }
     }
 
-    fn write(&mut self, _ram: &mut [u8], _addr: u16, _value: u8) {
-        todo!("cartridge::mbc5::Mbc5::write")
+    fn write(&mut self, ram: &mut [u8], addr: u16, value: u8) {
+        match addr {
+            0x0000..=0x1FFF => self.ram_enable = value & 0x0F == 0x0A,
+            0x2000..=0x2FFF => self.rom_bank = (self.rom_bank & 0x100) | value as u16,
+            0x3000..=0x3FFF => {
+                self.rom_bank = (self.rom_bank & 0x0FF) | (((value & 0x01) as u16) << 8)
+            }
+            0x4000..=0x5FFF => self.ram_bank = value & 0x0F,
+            0xA000..=0xBFFF if self.ram_enable && !ram.is_empty() => {
+                let bank = (self.ram_bank as usize & 0x0F) % self.ram_banks;
+                ram[bank * 0x2000 + (addr as usize - 0xA000)] = value;
+            }
+            _ => {}
+        }
     }
 
-    fn save_state(&self, _out: &mut Vec<u8>) {
-        todo!("cartridge::mbc5::Mbc5::save_state")
+    fn save_state(&self, out: &mut Vec<u8>) {
+        out.push(self.ram_enable as u8);
+        out.extend_from_slice(&self.rom_bank.to_le_bytes());
+        out.push(self.ram_bank);
     }
 
-    fn load_state(&mut self, _state: &[u8], _cursor: &mut usize) -> Result<(), StateError> {
-        todo!("cartridge::mbc5::Mbc5::load_state")
+    fn load_state(&mut self, state: &[u8], cursor: &mut usize) -> Result<(), StateError> {
+        let b = state
+            .get(*cursor..*cursor + 4)
+            .ok_or(StateError::Truncated)?;
+        self.ram_enable = b[0] != 0;
+        self.rom_bank = u16::from_le_bytes([b[1], b[2]]);
+        self.ram_bank = b[3];
+        *cursor += 4;
+        Ok(())
     }
 }

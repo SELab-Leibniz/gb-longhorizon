@@ -1,5 +1,7 @@
 //! Small dependency-free helpers shared by the core, CLI and harness.
 
+use crate::prelude::*;
+
 /// 64-bit FNV-1a hash. Used to fingerprint framebuffers; the harness
 /// compares these against golden values produced by a reference emulator,
 /// so the algorithm must not change.

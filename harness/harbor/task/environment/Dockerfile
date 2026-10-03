@@ -62,7 +62,7 @@ WORKDIR /work
 # crates (windows-sys, wayland, x11...) into the vendor dir. The sandbox is
 # headless, so drop it here; gb-core and gb-cli have zero dependencies.
 # The repo itself keeps gb-gui for the post-run demo.
-RUN sed -i 's/members = \["gb-core", "gb-cli", "gb-gui"\]/members = ["gb-core", "gb-cli"]/' Cargo.toml \
+RUN sed -i 's/"gb-gui", //' Cargo.toml \
     && rm -rf gb-gui \
     && python3 - <<'PYEOF'
 import re, pathlib
@@ -78,7 +78,7 @@ assert "gb-gui" not in s, "README still mentions gb-gui"
 assert "operator-notes" not in s and "harness/" not in s, "README still has the operator note"
 PYEOF
 RUN sed -i '/gb-gui/d' Cargo.toml \
-    && grep -q 'members = \["gb-core", "gb-cli"\]' Cargo.toml \
+    && grep -q 'members = \["gb-core", "gb-cli", "gb-tools", "gb-wasm", "gb-web"\]' Cargo.toml \
     && ! grep -q gb-gui Cargo.toml README.md
 RUN harness/scripts/fetch_assets.sh \
     && harness/scripts/vendor.sh \

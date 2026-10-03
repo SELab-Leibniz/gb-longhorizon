@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game Boy library</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; padding: 1.25rem; }
+  h1 { margin: 0 0 1rem; font-size: 1.4rem; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: 1rem; }
+  #search { min-width: 16rem; padding: .35rem .5rem; }
+  #upload-status { font-size: .9rem; }
+  #upload-status[data-state="ok"] { color: #157347; }
+  #upload-status[data-state="error"] { color: #b02a37; }
+  #game-list { display: flex; flex-wrap: wrap; gap: 1rem; list-style: none; padding: 0; margin: 0; }
+  .card { border: 1px solid rgba(128,128,128,.45); border-radius: 6px; padding: .5rem; width: 180px; display: flex; flex-direction: column; gap: .35rem; }
+  .game-title { font-weight: 600; overflow-wrap: anywhere; min-height: 1.2em; }
+  .game-meta { font-size: .8rem; opacity: .7; overflow-wrap: anywhere; }
+  img.thumb { image-rendering: pixelated; width: 160px; height: 144px; display: block; background: #000; }
+  .card .actions { display: flex; gap: .5rem; align-items: center; margin-top: auto; }
+  a.play { text-decoration: none; }
+  button.delete { margin-left: auto; }
+</style>
+</head>
+<body>
+<h1>Game Boy library</h1>
+<div class="toolbar">
+  <input id="search" type="text" placeholder="Search title or filename" autocomplete="off">
+  <input id="upload-input" type="file" accept=".gb,.gbc,.rom">
+  <button id="upload-button" type="button">Upload</button>
+  <span id="upload-status"></span>
+</div>
+<ul id="game-list"></ul>
+<script>
+(function () {
+  "use strict";
+
+  var listEl = document.getElementById("game-list");
+  var searchEl = document.getElementById("search");
+  var uploadInput = document.getElementById("upload-input");
+  var uploadButton = document.getElementById("upload-button");
+  var statusEl = document.getElementById("upload-status");
+
+  // The full library, in the order the API returned it (default order).
+  var games = [];
+
+  function matches(game, needle) {
+    if (!needle) return true;
+    var title = (game && game.title != null ? String(game.title) : "").toLowerCase();
+    var filename = (game && game.filename != null ? String(game.filename) : "").toLowerCase();
+    return title.indexOf(needle) !== -1 || filename.indexOf(needle) !== -1;
+  }
+
+  function makeCard(game) {
+    var id = String(game.id);
+
+    var card = document.createElement("li");
+    card.className = "card";
+    card.setAttribute("data-game-id", id);
+
+    var title = document.createElement("div");
+    title.className = "game-title";
+    title.textContent = game.title != null ? String(game.title) : "";
+    card.appendChild(title);
+
+    var img = document.createElement("img");
+    img.className = "thumb";
+    img.alt = title.textContent;
+    img.src = "/api/games/" + encodeURIComponent(id) + "/screenshot.png";
+    card.appendChild(img);
+
+    var meta = document.createElement("div");
+    meta.className = "game-meta";
+    meta.textContent = game.filename != null ? String(game.filename) : "";
+    card.appendChild(meta);
+
+    var actions = document.createElement("div");
+    actions.className = "actions";
+
+    var play = document.createElement("a");
+    play.className = "play";
+    play.href = "/play/" + encodeURIComponent(id);
+    play.textContent = "Play";
+    actions.appendChild(play);
+
+    var del = document.createElement("button");
+    del.className = "delete";
+    del.type = "button";
+    del.textContent = "Delete";
+    del.addEventListener("click", function (ev) {
+      // Delete immediately, without any confirmation dialog.
+      ev.preventDefault();
+      ev.stopPropagation();
+      removeGame(id);
+      fetch("/api/games/" + encodeURIComponent(id), { method: "DELETE" }).catch(function () {});
+    });
+    actions.appendChild(del);
+
+    card.appendChild(actions);
+    return card;
+  }
+
+  function render() {
+    var needle = String(searchEl.value || "").trim().toLowerCase();
+    var visible = games.filter(function (g) { return matches(g, needle); });
+
+    while (listEl.firstChild) {
+      listEl.removeChild(listEl.firstChild);
+    }
+
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < visible.length; i++) {
+      frag.appendChild(makeCard(visible[i]));
+    }
+    listEl.appendChild(frag);
+  }
+
+  function removeGame(id) {
+    games = games.filter(function (g) { return String(g.id) !== id; });
+    render();
+  }
+
+  function loadGames() {
+    return fetch("/api/games", { headers: { "Accept": "application/json" } })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        games = (data && data.games) ? data.games : [];
+        render();
+      })
+      .catch(function () { /* keep the list we already have */ });
+  }
+
+  function setUploadOk(message) {
+    statusEl.setAttribute("data-state", "ok");
+    statusEl.removeAttribute("data-error-code");
+    statusEl.textContent = message;
+  }
+
+  function setUploadError(code, message) {
+    statusEl.setAttribute("data-state", "error");
+    statusEl.setAttribute("data-error-code", code);
+    statusEl.textContent = message;
+  }
+
+  function upload(file) {
+    var form = new FormData();
+    form.append("rom", file, file.name);
+
+    // Let the browser set the multipart Content-Type (with boundary).
+    fetch("/api/games", { method: "POST", body: form })
+      .then(function (r) {
+        return r.json().then(function (body) {
+          return { ok: r.ok, status: r.status, body: body };
+        }).catch(function () {
+          return { ok: r.ok, status: r.status, body: null };
+        });
+      })
+      .then(function (res) {
+        if (res.ok) {
+          var g = (res.body && res.body.id) ? res.body : null;
+          var label = g && (g.title || g.filename) ? (g.title || g.filename) : (file.name || "ROM");
+          setUploadOk('Uploaded "' + label + '"');
+          if (g && !games.some(function (x) { return String(x.id) === String(g.id); })) {
+            games.push(g);
+            render();
+          }
+          loadGames();
+        } else {
+          var code = (res.body && res.body.code) ? String(res.body.code) : ("http_" + res.status);
+          var message = (res.body && res.body.error) ? String(res.body.error)
+            : ("Upload failed (HTTP " + res.status + ")");
+          setUploadError(code, message);
+        }
+      })
+      .catch(function (err) {
+        setUploadError("network_error",
+          "Upload failed: " + (err && err.message ? err.message : "network error"));
+      });
+  }
+
+  uploadButton.addEventListener("click", function () {
+    var file = uploadInput.files && uploadInput.files[0];
+    if (!file) {
+      setUploadError("no_file", "Choose a ROM file first.");
+      return;
+    }
+    upload(file);
+  });
+
+  searchEl.addEventListener("input", render);
+
+  loadGames();
+})();
+</script>
+</body>
+</html>

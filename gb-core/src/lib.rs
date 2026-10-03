@@ -27,8 +27,11 @@
 //! See `DECISIONS.md` at the repository root for the architectural
 //! choices that are already fixed (cycle model, boot behaviour, etc.).
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+extern crate alloc;
 
 pub mod apu;
 pub mod cartridge;
@@ -38,6 +41,7 @@ pub mod interrupts;
 pub mod joypad;
 pub mod mmu;
 pub mod ppu;
+pub(crate) mod prelude;
 pub mod serial;
 pub mod timer;
 pub mod util;
@@ -45,6 +49,7 @@ pub mod util;
 pub use cartridge::LoadError;
 pub use emulator::{Emulator, Model, StepResult};
 pub use joypad::Buttons;
+pub use mmu::DataAccess;
 
 /// LCD width in pixels.
 pub const SCREEN_WIDTH: usize = 160;

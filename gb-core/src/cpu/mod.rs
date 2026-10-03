@@ -17,7 +17,9 @@ pub mod registers;
 pub use registers::{Flags, Registers};
 
 use crate::emulator::{Model, StateError, StepResult};
+use crate::interrupts::Interrupt;
 use crate::mmu::Mmu;
+use crate::prelude::*;
 
 /// CPU state: registers plus the control flags that are not memory-mapped.
 #[derive(Debug, Clone)]
@@ -67,8 +69,65 @@ impl Cpu {
     ///
     /// Must return [`StepResult::Breakpoint`] when the executed opcode is
     /// `0x40` (`LD B,B`) — the test harness depends on it.
-    pub fn step(&mut self, _mmu: &mut Mmu) -> StepResult {
-        todo!("cpu::Cpu::step — see docs/opcodes.json and Pan Docs 'CPU Instruction Set'")
+    pub fn step(&mut self, mmu: &mut Mmu) -> StepResult {
+        mmu.take_accesses();
+        let start = mmu.real_cycles();
+        // Whether an `EI` was executed one instruction ago: its delayed enable
+        // takes effect after the instruction executed below.
+        let ime_armed = self.ime_pending;
+
+        // An interrupt is taken when IME is set and IF & IE request one,
+        // before the next instruction is fetched.
+        if self.ime {
+            if let Some(irq) = mmu.interrupts.pending() {
+                self.halted = false;
+                service_interrupt(self, mmu, irq);
+                return StepResult::Ran(elapsed(start, mmu));
+            }
+        }
+
+        // HALTed: burn one M-cycle per step until an interrupt is requested,
+        // then fall back into normal execution (servicing it if IME is set).
+        if self.halted {
+            mmu.idle_cycle();
+            if mmu.interrupts.flags & mmu.interrupts.enable & 0x1F != 0 {
+                self.halted = false;
+            }
+            return StepResult::Ran(elapsed(start, mmu));
+        }
+
+        let pc = self.regs.pc;
+        let opcode = mmu.cycle_read_fetch(pc);
+        if self.halt_bug {
+            // The HALT bug suppresses the PC increment for exactly one fetch,
+            // so the byte just read is re-executed.
+            self.halt_bug = false;
+        } else {
+            self.regs.pc = pc.wrapping_add(1);
+        }
+
+        if opcode == 0x40 {
+            // `LD B,B` is the magic breakpoint the test ROMs pass through.
+            // The fetch above already ticked the bus.
+            return StepResult::Breakpoint;
+        }
+
+        if opcode == 0xCB {
+            let cb = mmu.cycle_read_fetch(self.regs.pc);
+            self.regs.pc = self.regs.pc.wrapping_add(1);
+            opcodes::execute_cb(self, mmu, cb);
+        } else {
+            opcodes::execute(self, mmu, opcode);
+        }
+
+        // An `EI` one instruction ago takes effect now, unless the instruction
+        // just executed was a `DI` that cancelled it.
+        if ime_armed && self.ime_pending {
+            self.ime = true;
+            self.ime_pending = false;
+        }
+
+        StepResult::Ran(elapsed(start, mmu))
     }
 
     /// Copy of the register file.
@@ -77,12 +136,67 @@ impl Cpu {
     }
 
     /// Append CPU state to a save-state buffer.
-    pub fn save_state(&self, _out: &mut Vec<u8>) {
-        todo!("cpu::Cpu::save_state")
+    pub fn save_state(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&[
+            self.regs.a,
+            self.regs.f,
+            self.regs.b,
+            self.regs.c,
+            self.regs.d,
+            self.regs.e,
+            self.regs.h,
+            self.regs.l,
+        ]);
+        out.extend_from_slice(&self.regs.sp.to_le_bytes());
+        out.extend_from_slice(&self.regs.pc.to_le_bytes());
+        out.push(self.ime as u8);
+        out.push(self.ime_pending as u8);
+        out.push(self.halted as u8);
+        out.push(self.halt_bug as u8);
     }
 
     /// Restore CPU state from a save-state buffer, advancing `cursor`.
-    pub fn load_state(&mut self, _state: &[u8], _cursor: &mut usize) -> Result<(), StateError> {
-        todo!("cpu::Cpu::load_state")
+    pub fn load_state(&mut self, state: &[u8], cursor: &mut usize) -> Result<(), StateError> {
+        let s = state
+            .get(*cursor..*cursor + 16)
+            .ok_or(StateError::Truncated)?;
+        *cursor += 16;
+        self.regs.a = s[0];
+        self.regs.f = s[1];
+        self.regs.b = s[2];
+        self.regs.c = s[3];
+        self.regs.d = s[4];
+        self.regs.e = s[5];
+        self.regs.h = s[6];
+        self.regs.l = s[7];
+        self.regs.sp = u16::from_le_bytes([s[8], s[9]]);
+        self.regs.pc = u16::from_le_bytes([s[10], s[11]]);
+        self.ime = s[12] != 0;
+        self.ime_pending = s[13] != 0;
+        self.halted = s[14] != 0;
+        self.halt_bug = s[15] != 0;
+        Ok(())
     }
+}
+
+/// Real T-cycles ticked on the bus since `start`.
+fn elapsed(start: u64, mmu: &Mmu) -> u32 {
+    (mmu.real_cycles() - start) as u32
+}
+
+/// Take an interrupt: 2 wait M-cycles, push PC (high then low), then one
+/// M-cycle to load the vector. IME is cleared so a nested interrupt is not
+/// taken until another `EI`/`RETI`.
+fn service_interrupt(cpu: &mut Cpu, mmu: &mut Mmu, irq: Interrupt) {
+    mmu.idle_cycle();
+    mmu.idle_cycle();
+    let pc = cpu.regs.pc;
+    cpu.regs.sp = cpu.regs.sp.wrapping_sub(1);
+    mmu.cycle_write(cpu.regs.sp, (pc >> 8) as u8);
+    cpu.regs.sp = cpu.regs.sp.wrapping_sub(1);
+    mmu.cycle_write(cpu.regs.sp, pc as u8);
+    mmu.idle_cycle();
+    cpu.regs.pc = irq.vector();
+    cpu.ime = false;
+    mmu.interrupts.acknowledge(irq);
 }

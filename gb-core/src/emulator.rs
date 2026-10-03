@@ -6,7 +6,8 @@
 
 use crate::cpu::{Cpu, Registers};
 use crate::joypad::Buttons;
-use crate::mmu::Mmu;
+use crate::mmu::{DataAccess, Mmu};
+use crate::prelude::*;
 use crate::{cartridge::Cartridge, LoadError, CYCLES_PER_FRAME};
 
 /// Outcome of executing one instruction.
@@ -51,6 +52,8 @@ pub struct Emulator {
     mmu: Mmu,
     model: Model,
     frames: u64,
+    instructions: u64,
+    rom: Vec<u8>,
 }
 
 impl Emulator {
@@ -71,6 +74,8 @@ impl Emulator {
             mmu: Mmu::new(cart, model),
             model,
             frames: 0,
+            instructions: 0,
+            rom: rom.to_vec(),
         })
     }
 
@@ -83,6 +88,7 @@ impl Emulator {
     /// precedes it). The CPU advances the peripherals itself, one M-cycle per
     /// bus access (DECISIONS.md D1); this method does not tick anything.
     pub fn step_instruction(&mut self) -> StepResult {
+        self.instructions += 1;
         self.cpu.step(&mut self.mmu)
     }
 
@@ -173,6 +179,86 @@ impl Emulator {
     pub fn cart_ram(&self) -> Option<&[u8]> {
         self.mmu.cartridge.ram()
     }
+
+    /// Mutable cartridge RAM (WebAssembly host writes a battery save straight
+    /// into linear memory before the first frame).
+    pub fn cart_ram_mut(&mut self) -> Option<&mut [u8]> {
+        self.mmu.cartridge.ram_mut()
+    }
+
+    /// Overwrite cartridge RAM (loading a battery save). Extra bytes are
+    /// ignored, and a cartridge without RAM is left untouched.
+    pub fn set_cart_ram(&mut self, data: &[u8]) {
+        self.mmu.cartridge.set_ram(data);
+    }
+
+    /// Enable or disable "Gameboy Doctor" mode: reads of LY (`$FF44`) return
+    /// `$90` so reference traces do not depend on PPU timing.
+    pub fn set_doctor(&mut self, on: bool) {
+        self.mmu.set_doctor(on);
+    }
+
+    /// Data-bus accesses (loads, stores, read-modify-write, pushes, pops and
+    /// interrupt stack writes) recorded while executing instructions since
+    /// the last call, in order, one instruction's worth at a time.
+    pub fn take_accesses(&mut self) -> Vec<DataAccess> {
+        self.mmu.take_accesses()
+    }
+
+    /// Untimed write of one bus address (no peripheral advance). Used by the
+    /// debugger to poke memory.
+    pub fn poke(&mut self, addr: u16, value: u8) {
+        self.mmu.write(addr, value);
+    }
+
+    /// Replace the whole register file (debugger).
+    pub fn set_registers(&mut self, regs: Registers) {
+        self.cpu.regs = regs;
+    }
+
+    /// True while the CPU is HALTed (debugger).
+    pub fn is_halted(&self) -> bool {
+        self.cpu.halted
+    }
+
+    /// Debug helper: read one raw OAM byte (`$FE00`–`$FE9F`) without the
+    /// OAM-DMA bus mask applied by [`Self::peek`]. Used by the timing-test
+    /// tracers.
+    pub fn peek_oam(&self, index: usize) -> u8 {
+        self.mmu.ppu.oam.get(index).copied().unwrap_or(0xFF)
+    }
+
+    /// Temporary debug: raw system counter.
+    pub fn debug_timer_counter(&self) -> u16 {
+        self.mmu.timer.debug_counter()
+    }
+
+    /// Temporary debug: timer reload state.
+    pub fn debug_timer_reload(&self) -> (bool, u8) {
+        self.mmu.timer.debug_reload()
+    }
+
+    /// Whether IME is set (debugger).
+    pub fn ime(&self) -> bool {
+        self.cpu.ime
+    }
+
+    /// Total instructions executed since load (debugger).
+    pub fn instruction_count(&self) -> u64 {
+        self.instructions
+    }
+
+    /// Restart from power-on state using the same ROM image. Clears the
+    /// frame/instruction counters; hardware registers return to their
+    /// post-boot values.
+    pub fn reset(&mut self) {
+        if let Ok(fresh) = Emulator::load_with_model(&self.rom, self.model) {
+            self.cpu = fresh.cpu;
+            self.mmu = fresh.mmu;
+            self.frames = 0;
+            self.instructions = 0;
+        }
+    }
 }
 
 /// Error restoring a save state.
@@ -184,8 +270,8 @@ pub enum StateError {
     Corrupt(&'static str),
 }
 
-impl std::fmt::Display for StateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for StateError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             StateError::Truncated => write!(f, "save state truncated"),
             StateError::Corrupt(why) => write!(f, "save state corrupt: {why}"),
@@ -193,4 +279,4 @@ impl std::fmt::Display for StateError {
     }
 }
 
-impl std::error::Error for StateError {}
+impl core::error::Error for StateError {}

@@ -9,6 +9,12 @@ publish.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+# `std` is on by default. Build with `--no-default-features` for embedded
+# (`#![no_std]` + `alloc`) targets such as `thumbv7em-none-eabihf`.
+default = ["std"]
+std = []
+
 # Deliberately empty. The core must stay dependency-free; see README.md.
 [dependencies]
 

@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Game Boy player</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; margin: 0; padding: 1rem;
+         background: #101014; color: #e9e9ee; }
+  .wrap { display: flex; flex-direction: column; align-items: center; gap: .75rem; }
+  #screen {
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+    width: 480px;
+    height: 432px;
+    background: #000;
+    border: 1px solid #333;
+    display: block;
+    touch-action: none;
+  }
+  .controls { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; justify-content: center; }
+  button { padding: .35rem .8rem; }
+  .readout { font-variant-numeric: tabular-nums; opacity: .85; }
+  .readout b { font-weight: 600; }
+  #error { color: #ff6b6b; max-width: 40rem; text-align: center; }
+  .hint { font-size: .8rem; opacity: .6; text-align: center; max-width: 32rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="screen" width="160" height="144"></canvas>
+  <div class="controls">
+    <button id="pause" type="button">Pause</button>
+    <button id="reset" type="button">Reset</button>
+    <span class="readout"><b id="fps">0.0</b> fps</span>
+    <span class="readout">status: <b id="status">running</b></span>
+  </div>
+  <div id="error" hidden></div>
+  <p class="hint">Arrows: D-pad &middot; X: A &middot; Z: B &middot; Enter: Start &middot; Backspace: Select</p>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  var WIDTH = 160;
+  var HEIGHT = 144;
+  var PIXELS = WIDTH * HEIGHT;          // 23040
+  var FRAME_MS = 1000 / 59.7275;        // real-time pace (~59.73 Hz)
+
+  // FNV-1a-64 (the hash `gb --hash` prints).
+  var FNV_OFFSET = 0xcbf29ce484222325n;
+  var FNV_PRIME = 0x100000001b3n;
+  var U64 = 0xffffffffffffffffn;
+
+  // Four distinct DMG shades (same scaling as the screenshot renderer).
+  var DMG_PALETTE = [
+    [255, 255, 255],
+    [170, 170, 170],
+    [85, 85, 85],
+    [0, 0, 0]
+  ];
+
+  // Keyboard -> button bit (Appendix C: 0 RIGHT, 1 LEFT, 2 UP, 3 DOWN,
+  // 4 A, 5 B, 6 SELECT, 7 START).
+  var KEY_BITS = {
+    ArrowRight: 0x01,
+    ArrowLeft: 0x02,
+    ArrowUp: 0x04,
+    ArrowDown: 0x08,
+    KeyX: 0x10,
+    KeyZ: 0x20,
+    Backspace: 0x40,
+    Enter: 0x80
+  };
+
+  var canvas = document.getElementById("screen");
+  var ctx = canvas.getContext("2d");
+  var pauseBtn = document.getElementById("pause");
+  var resetBtn = document.getElementById("reset");
+  var fpsEl = document.getElementById("fps");
+  var statusEl = document.getElementById("status");
+  var errorEl = document.getElementById("error");
+
+  ctx.imageSmoothingEnabled = false;
+  var imageData = ctx.createImageData(WIDTH, HEIGHT);
+
+  var exports = null;      // WebAssembly exports once instantiated
+  var romBytes = null;     // Uint8Array copy of the ROM
+  var model = 0;           // 0 = DMG, 1 = CGB
+  var gameId = null;
+  var game = null;
+  var totalFrames = 0;     // frames run since load/reset
+  var heldMask = 0;        // currently held buttons
+
+  var paused = false;
+  var loopActive = false;
+  var rafId = 0;
+  var lastTime = 0;
+  var accumulator = 0;
+  var fpsFrames = 0;
+  var fpsWindowStart = 0;
+
+  var readyResolve = null;
+  var readyPromise = new Promise(function (resolve) { readyResolve = resolve; });
+
+  // ---------------------------------------------------------------- helpers
+
+  function idFromPath() {
+    var parts = location.pathname.split("/").filter(function (s) { return s.length > 0; });
+    return parts.length ? decodeURIComponent(parts[parts.length - 1]) : "";
+  }
+
+  function setError(message) {
+    if (!errorEl) return;
+    if (message) {
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    } else {
+      errorEl.textContent = "";
+      errorEl.hidden = true;
+    }
+  }
+
+  function applyButtons() {
+    if (exports) exports.gb_set_buttons(heldMask | 0);
+  }
+
+  // ---------------------------------------------------------------- drawing
+
+  function drawFrame() {
+    if (!exports) return;
+    var len = exports.gb_frame_len();
+    var ptr = exports.gb_frame_ptr() >>> 0;
+    var src = new Uint8Array(exports.memory.buffer, ptr, len); // re-read after run
+    var out = imageData.data;
+    var i, o, v, r5, g5, b5, s, col;
+
+    if (len >= PIXELS * 2) {
+      // CGB: 160*144 RGB555 little-endian pairs.
+      for (i = 0, o = 0; i < len; i += 2, o += 4) {
+        v = src[i] | (src[i + 1] << 8);
+        r5 = v & 31;
+        g5 = (v >> 5) & 31;
+        b5 = (v >> 10) & 31;
+        out[o] = (r5 << 3) | (r5 >> 2);
+        out[o + 1] = (g5 << 3) | (g5 >> 2);
+        out[o + 2] = (b5 << 3) | (b5 >> 2);
+        out[o + 3] = 255;
+      }
+    } else {
+      // DMG: one shade byte per pixel.
+      for (i = 0, o = 0; i < PIXELS; i++, o += 4) {
+        s = src[i] & 3;
+        col = DMG_PALETTE[s];
+        out[o] = col[0];
+        out[o + 1] = col[1];
+        out[o + 2] = col[2];
+        out[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  function frameHash() {
+    if (!exports) return "0000000000000000";
+    var len = exports.gb_frame_len();
+    var ptr = exports.gb_frame_ptr() >>> 0;
+    var buf = new Uint8Array(exports.memory.buffer, ptr, len);
+    var h = FNV_OFFSET;
+    for (var i = 0; i < len; i++) {
+      h = ((h ^ BigInt(buf[i])) * FNV_PRIME) & U64;
+    }
+    return h.toString(16).padStart(16, "0");
+  }
+
+  // ------------------------------------------------------------ emulation
+
+  function runFrames(n) {
+    if (!exports || !(n > 0)) return totalFrames;
+    exports.gb_run_frames(n);
+    totalFrames += n;
+    return totalFrames;
+  }
+
+  function loadRom() {
+    var ptr = exports.gb_alloc(romBytes.length) >>> 0;
+    new Uint8Array(exports.memory.buffer, ptr, romBytes.length).set(romBytes);
+    var status = exports.gb_load(ptr, romBytes.length, model);
+    exports.gb_set_buttons(heldMask | 0);
+    return status;
+  }
+
+  function resetGame() {
+    if (!exports || !romBytes) return totalFrames;
+    var status = loadRom();
+    totalFrames = 0;
+    accumulator = 0;
+    lastTime = performance.now();
+    drawFrame();
+    if (status !== 0) setError("Failed to load the ROM.");
+    return totalFrames;
+  }
+
+  // ---------------------------------------------------------------- saves
+
+  function saveRam(keepalive) {
+    if (!exports || !gameId) return;
+    if (!game || game.battery !== true) return;
+    var len = exports.gb_cart_ram_len();
+    if (!(len > 0)) return;
+    var ptr = exports.gb_cart_ram_ptr() >>> 0;
+    if (!ptr) return;
+    var body = new Uint8Array(exports.memory.buffer, ptr, len).slice();
+    var opts = {
+      method: "PUT",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: body
+    };
+    if (keepalive) opts.keepalive = true;
+    fetch("/api/games/" + encodeURIComponent(gameId) + "/save", opts).catch(function () {});
+  }
+
+  // ----------------------------------------------------------- real-time loop
+
+  function startLoop() {
+    if (loopActive || !exports) return;
+    loopActive = true;
+    lastTime = performance.now();
+    accumulator = 0;
+    fpsFrames = 0;
+    fpsWindowStart = lastTime;
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function stopLoop() {
+    loopActive = false;
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+  }
+
+  function loop(now) {
+    if (!loopActive) return;
+    rafId = requestAnimationFrame(loop);
+
+    var dt = now - lastTime;
+    lastTime = now;
+    if (dt < 0) dt = 0;
+    if (dt > 250) dt = 250; // never run more than ~a quarter second in one go
+
+    accumulator += dt;
+    var n = 0;
+    while (accumulator >= FRAME_MS && n < 20) {
+      accumulator -= FRAME_MS;
+      n++;
+    }
+    if (n > 0) {
+      runFrames(n);
+      drawFrame();
+      fpsFrames += n;
+    }
+
+    var elapsed = now - fpsWindowStart;
+    if (elapsed >= 1000) {
+      fpsEl.textContent = (fpsFrames * 1000 / elapsed).toFixed(1);
+      fpsFrames = 0;
+      fpsWindowStart = now;
+    }
+  }
+
+  // ---------------------------------------------------------------- controls
+
+  function setPaused(p) {
+    p = !!p;
+    if (p === paused) return;
+    paused = p;
+    if (paused) {
+      stopLoop();
+      saveRam(false);
+      statusEl.textContent = "paused";
+      pauseBtn.textContent = "Resume";
+    } else {
+      statusEl.textContent = "running";
+      pauseBtn.textContent = "Pause";
+      startLoop();
+    }
+  }
+
+  function step(n) {
+    if (!exports) return totalFrames;
+    n = Math.floor(Number(n));
+    if (!isFinite(n) || n <= 0) return totalFrames;
+    runFrames(n);
+    drawFrame();
+    return totalFrames;
+  }
+
+  document.addEventListener("keydown", function (ev) {
+    var bit = KEY_BITS[ev.code];
+    if (bit === undefined) return;
+    ev.preventDefault();
+    if ((heldMask & bit) === 0) {
+      heldMask |= bit;
+      applyButtons();
+    }
+  });
+
+  document.addEventListener("keyup", function (ev) {
+    var bit = KEY_BITS[ev.code];
+    if (bit === undefined) return;
+    ev.preventDefault();
+    if (heldMask & bit) {
+      heldMask &= ~bit;
+      applyButtons();
+    }
+  });
+
+  pauseBtn.addEventListener("click", function () { setPaused(!paused); });
+  resetBtn.addEventListener("click", function () { resetGame(); });
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") saveRam(false);
+  });
+  window.addEventListener("pagehide", function () { saveRam(true); });
+
+  // --------------------------------------------------------------- test hook
+
+  window.gbTest = {
+    ready: readyPromise,
+    pause: function () { setPaused(true); },
+    resume: function () { setPaused(false); },
+    reset: function () { return resetGame(); },
+    step: function (n) { return step(n); },
+    frames: function () { return totalFrames; },
+    frameHash: function () { return frameHash(); },
+    model: function () { return model === 1 ? "cgb" : "dmg"; }
+  };
+
+  // ------------------------------------------------------------------- boot
+
+  function boot() {
+    gameId = idFromPath();
+    setError("");
+    if (!gameId) {
+      setError("No game id in the URL.");
+      if (readyResolve) readyResolve();
+      return;
+    }
+
+    var wasmPromise = fetch("/gb_wasm.wasm").then(function (r) {
+      if (!r.ok) throw new Error("wasm HTTP " + r.status);
+      return r.arrayBuffer();
+    });
+    var gamePromise = fetch("/api/games/" + encodeURIComponent(gameId)).then(function (r) {
+      if (!r.ok) throw new Error("game HTTP " + r.status);
+      return r.json();
+    });
+    var romPromise = fetch("/api/games/" + encodeURIComponent(gameId) + "/rom").then(function (r) {
+      if (!r.ok) throw new Error("rom HTTP " + r.status);
+      return r.arrayBuffer();
+    });
+
+    Promise.all([wasmPromise, gamePromise, romPromise])
+      .then(function (results) {
+        game = results[1];
+        romBytes = new Uint8Array(results[2]);
+        model = (game && game.cgb && game.cgb !== "none") ? 1 : 0;
+        return WebAssembly.instantiate(results[0], {}).then(function (inst) {
+          exports = inst.instance.exports;
+          return restoreSave();
+        });
+      })
+      .then(function () {
+        drawFrame();
+        if (paused) {
+          statusEl.textContent = "paused";
+          pauseBtn.textContent = "Resume";
+        } else {
+          statusEl.textContent = "running";
+          pauseBtn.textContent = "Pause";
+          startLoop();
+        }
+        if (readyResolve) readyResolve();
+      })
+      .catch(function (err) {
+        setError("Failed to start: " + (err && err.message ? err.message : String(err)));
+        if (readyResolve) readyResolve();
+      });
+  }
+
+  function restoreSave() {
+    if (!exports || !romBytes) return Promise.resolve();
+    var status = loadRom();
+    if (status !== 0) throw new Error("gb_load failed (status " + status + ")");
+
+    // Write a stored battery save into cartridge RAM BEFORE the first frame.
+    return fetch("/api/games/" + encodeURIComponent(gameId) + "/save")
+      .then(function (r) {
+        if (r.status !== 200) return null;
+        return r.arrayBuffer();
+      })
+      .catch(function () { return null; })
+      .then(function (saveBuf) {
+        if (!saveBuf) return;
+        var len = exports.gb_cart_ram_len();
+        var ptr = exports.gb_cart_ram_ptr() >>> 0;
+        if (!(len > 0) || !ptr) return;
+        var dst = new Uint8Array(exports.memory.buffer, ptr, len);
+        var src = new Uint8Array(saveBuf);
+        dst.set(src.subarray(0, Math.min(src.length, len)));
+      });
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

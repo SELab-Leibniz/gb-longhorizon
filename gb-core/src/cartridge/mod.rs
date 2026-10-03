@@ -11,6 +11,8 @@
 //! * `mbc5.rs` — up to 8 MiB ROM (9-bit bank number) / 128 KiB RAM.
 //!   Mooneye `emulator-only/mbc5/*`.
 
+use crate::prelude::*;
+
 pub mod mbc1;
 pub mod mbc3;
 pub mod mbc5;
@@ -28,8 +30,8 @@ pub enum LoadError {
     BadRamSize(u8),
 }
 
-impl std::fmt::Display for LoadError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             LoadError::TooSmall(n) => write!(f, "ROM is {n} bytes; need at least 336"),
             LoadError::UnsupportedMapper(t) => write!(f, "unsupported cartridge type 0x{t:02X}"),
@@ -39,7 +41,7 @@ impl std::fmt::Display for LoadError {
     }
 }
 
-impl std::error::Error for LoadError {}
+impl core::error::Error for LoadError {}
 
 /// Which controller chip the cartridge uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,11 +167,21 @@ impl Cartridge {
     /// Parse the header and pick a controller.
     pub fn from_bytes(rom: &[u8]) -> Result<Self, LoadError> {
         let header = Header::parse(rom)?;
+        // A controller that supports external RAM but a header that declares
+        // none still gets the standard 8 KiB: test ROMs and homebrew in the
+        // wild rely on the RAM being present.
+        let ram_size = if header.ram_size == 0
+            && matches!(header.mapper, Mapper::Mbc1 | Mapper::Mbc3 | Mapper::Mbc5)
+        {
+            8 * 1024
+        } else {
+            header.ram_size
+        };
         let mbc: Box<dyn Mbc> = match header.mapper {
             Mapper::None => Box::new(NoMbc),
-            Mapper::Mbc1 => Box::new(mbc1::Mbc1::new(header.rom_size, header.ram_size)),
-            Mapper::Mbc3 => Box::new(mbc3::Mbc3::new(header.rom_size, header.ram_size)),
-            Mapper::Mbc5 => Box::new(mbc5::Mbc5::new(header.rom_size, header.ram_size)),
+            Mapper::Mbc1 => Box::new(mbc1::Mbc1::new(header.rom_size, ram_size)),
+            Mapper::Mbc3 => Box::new(mbc3::Mbc3::new(header.rom_size, ram_size)),
+            Mapper::Mbc5 => Box::new(mbc5::Mbc5::new(header.rom_size, ram_size)),
         };
         // Pad short images so bank arithmetic never indexes out of range.
         let mut rom_vec = rom.to_vec();
@@ -177,7 +189,7 @@ impl Cartridge {
             rom_vec.resize(header.rom_size, 0xFF);
         }
         Ok(Self {
-            ram: vec![0; header.ram_size],
+            ram: vec![0; ram_size],
             rom: rom_vec,
             mbc,
             header,
@@ -197,6 +209,12 @@ impl Cartridge {
     /// External RAM, if present.
     pub fn ram(&self) -> Option<&[u8]> {
         (!self.ram.is_empty()).then_some(self.ram.as_slice())
+    }
+
+    /// Mutable external RAM, if present (used by the WebAssembly host to
+    /// write a battery save into linear memory).
+    pub fn ram_mut(&mut self) -> Option<&mut [u8]> {
+        (!self.ram.is_empty()).then_some(self.ram.as_mut_slice())
     }
 
     /// Replace external RAM contents (loading a battery save).

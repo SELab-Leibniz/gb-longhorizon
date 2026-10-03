@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["gb-core", "gb-cli", "gb-gui"]
+members = ["gb-core", "gb-cli", "gb-gui", "gb-tools", "gb-wasm", "gb-web"]
 # `cargo build` / `cargo test` at the root build only the headless pieces.
 # The GUI needs a windowing library and is opt-in: `cargo run -p gb-gui`.
 default-members = ["gb-core", "gb-cli"]

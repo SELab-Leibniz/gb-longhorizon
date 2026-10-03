@@ -1,0 +1,18 @@
+[package]
+name = "gb-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Developer tooling for the gb emulator: gb-trace and gb-server"
+
+[dependencies]
+gb-core = { path = "../gb-core" }
+
+[[bin]]
+name = "gb-trace"
+path = "src/bin/gb-trace.rs"
+
+[[bin]]
+name = "gb-server"
+path = "src/bin/gb-server.rs"
