@@ -7,7 +7,8 @@
 # is, and nothing is reachable without the proxy.
 set -u
 ok=1
-code() { curl -sS -o /dev/null -m 20 -w '%{http_code}' "$@" 2>/dev/null || echo "000"; }
+# curl prints 000 itself when no connection is made; fall back to 000 only if it printed nothing
+code() { local c; c=$(curl -sS -o /dev/null -m 20 -w '%{http_code}' "$@" 2>/dev/null); echo "${c:-000}"; }
 
 # tinyproxy closes a filtered CONNECT without an HTTP reply (curl reports 000);
 # any real HTTP status means the tunnel was established and the API answered
