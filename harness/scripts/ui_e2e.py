@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pngio import pgm_to_frame, ppm_to_frame  # noqa: E402
-from romgen import make_rom, sha256  # noqa: E402
+from romgen import joypad_rom, make_rom, sha256  # noqa: E402
 from web_conformance import Server, upload_raw  # noqa: E402
 
 ALL_CHECKS = [
@@ -225,7 +225,10 @@ def main():
     td = Path(tempfile.mkdtemp(prefix="gbui-"))
     srv = browser = None
     try:
-        srv = Server(a.server, td / "library", [a.roms / "games"], a.wasm)
+        extra = td / "seed-extra"         # a crafted ROM whose picture follows the buttons (player_input)
+        extra.mkdir()
+        (extra / "joypad.gb").write_bytes(joypad_rom())
+        srv = Server(a.server, td / "library", [a.roms / "games", extra], a.wasm)
         base = f"http://127.0.0.1:{srv.port}"
         browser, ws = start_chromium(a.chromium, td)
         cdp = CDP(ws, lambda u: u.startswith(base + "/") or u == base or u.split(":", 1)[0] in ("data", "blob", "about"))
@@ -375,17 +378,24 @@ def run(cdp, srv, base, a, td):
         check("player_canvas_dmg", player_canvas_dmg)
 
     def player_input():
-        # press START at frame 180, release at 200 (holding it from power-on changes nothing in 2048)
-        cdp.js("gbTest.pause(); gbTest.reset(); gbTest.step(180)")
-        cdp.key("keyDown", "Enter", "Enter", 13)
-        cdp.js("gbTest.step(20)")
-        cdp.key("keyUp", "Enter", "Enter", 13)
-        cdp.js("gbTest.step(100)")
+        # A (the X key) held from frame 10, on a ROM that copies the buttons into the palette:
+        # the frame must match `gb` with the same input, and differ from no input
+        joy = td / "seed-extra" / "joypad.gb"
+        cdp.goto(f"{base}/play/{sha256(joy.read_bytes())}")
+        cdp.wait("!!window.gbTest", 20)
+        cdp.js("window.gbTest.ready", timeout=30)
+        cdp.js("gbTest.pause(); gbTest.reset(); gbTest.step(10)")
+        cdp.key("keyDown", "x", "KeyX", 88)
+        cdp.js("gbTest.step(5)")
         got = cdp.js("gbTest.frameHash()")
-        script = td / "start.input"
-        script.write_text("180 START\n200\n")
-        want = native(a.gb, rom2048, 300, "dmg", script=script)
-        idle = native(a.gb, rom2048, 300, "dmg")
+        cdp.key("keyUp", "x", "KeyX", 88)
+        script = td / "a.input"
+        script.write_text("10 A\n")
+        want = native(a.gb, joy, 15, "dmg", script=script)
+        idle = native(a.gb, joy, 15, "dmg")
+        cdp.goto(f"{base}/play/{g2048['id']}")      # back to the DMG game for the checks that follow
+        cdp.wait("!!window.gbTest", 20)
+        cdp.js("window.gbTest.ready", timeout=30)
         return got == want and want and want != idle, (got, want, idle)
     if ready:
         check("player_input", player_input)
