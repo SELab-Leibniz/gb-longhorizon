@@ -112,19 +112,30 @@ class ProductOwner:
             messages.append({"role": "user", "content": q})
             messages.append({"role": "assistant", "content": a})
         messages.append({"role": "user", "content": question})
-        body = json.dumps({"model": self.model, "messages": messages, "temperature": 0.2, "max_tokens": 400}).encode()
-        req = urllib.request.Request(
-            f"{self.base_url}/chat/completions", data=body,
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"},
-        )
+        # The budget must cover the model's reasoning as well as the short answer: with
+        # a reasoning model a small max_tokens can be used up before any answer text
+        # (an empty reply). An empty reply is never written as an answer: retry, with
+        # a larger budget each time.
         for attempt in range(4):
+            budget = 8000 * (attempt + 1)
+            body = json.dumps({"model": self.model, "messages": messages, "temperature": 0.2,
+                               "max_tokens": budget}).encode()
+            req = urllib.request.Request(
+                f"{self.base_url}/chat/completions", data=body,
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"},
+            )
             try:
-                with urllib.request.urlopen(req, timeout=120) as r:
+                with urllib.request.urlopen(req, timeout=300) as r:
                     data = json.load(r)
-                return data["choices"][0]["message"]["content"].strip()
-            except (urllib.error.URLError, KeyError, json.JSONDecodeError) as e:
+                choice = data["choices"][0]
+                text = (choice["message"].get("content") or "").strip()
+                if re.sub(r"\s*\[items:[^\]]*\]\s*$", "", text).strip():
+                    return text
+                self.log("po.empty_reply", attempt=attempt, budget=budget, finish_reason=choice.get("finish_reason"),
+                         usage=data.get("usage"))
+            except (urllib.error.URLError, KeyError, json.JSONDecodeError, TimeoutError) as e:
                 self.log("po.llm_error", attempt=attempt, error=repr(e)[:200])
-                time.sleep(10 * (attempt + 1))
+            time.sleep(5 * (attempt + 1))
         return "Sorry, I can't get to that right now — ask again in a few minutes.\n[items: none]"
 
     # ---- file protocol ----------------------------------------------------
