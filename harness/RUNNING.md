@@ -35,12 +35,13 @@ verifier grades the last commit and writes a score between 0 and 1.
 
 ## 2. One-time setup
 
-**2.1 Clone the repository and check out the benchmark branch.**
+**2.1 Clone the repository.** The default branch, `full-spec`, is the
+benchmark described here (`main` and `harder-task` hold earlier variants).
 
 ```sh
 git clone https://github.com/SELab-Leibniz/gb-longhorizon.git
 cd gb-longhorizon
-git checkout full-spec            # the benchmark variant described here
+git branch --show-current         # full-spec
 ```
 
 All commands below run from the repository root.
