@@ -1,7 +1,7 @@
 # harbor run -c harness/harbor/jobs/jiuwenswarm.yaml
 job_name: gb-jiuwenswarm
 jobs_dir: jobs
-n_attempts: 3      # benchmark protocol: 3 trials per agent, run one after another (BENCHMARK.md)
+n_attempts: 1      # 1 trial per agent for this campaign; BENCHMARK.md recommends 3 for statistical claims
 orchestrator:
   type: local
   n_concurrent_trials: 1
