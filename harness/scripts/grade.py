@@ -40,8 +40,10 @@ def sh(cmd, cwd, timeout=None, env=None):
     leave no results.json at all and score the trial 0."""
     t = time.time()
     try:
-        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
-                             start_new_session=True)
+        # errors="replace": a half-working emulator prints arbitrary bytes (garbage
+        # serial output); that must never crash the grader.
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                             errors="replace", env=env, start_new_session=True)
     except OSError as e:          # e.g. the binary was never built
         return 127, "", f"[grader] cannot run {cmd[0]}: {e}", 0.0
     try:
@@ -447,22 +449,29 @@ def main():
             print("build failed; stopping", file=sys.stderr)
             a.out.write_text(json.dumps(report, indent=2))
             return 1
+    def run_tier(name, fn):
+        try:
+            report[name] = fn()
+        except Exception as e:  # one broken tier must not cost the others
+            import traceback
+            report[name] = {"error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()[-2000:]}
+
     if 1 in tiers:
-        report["tier1"] = tier1(co)
+        run_tier("tier1", lambda: tier1(co))
     if 2 in tiers:
-        report["tier2"] = tier2(co)
+        run_tier("tier2", lambda: tier2(co))
     if 3 in tiers:
-        report["tier3"] = tier3(co, a.golden)
+        run_tier("tier3", lambda: tier3(co, a.golden))
     if 4 in tiers:
-        report["tier4"] = tier4(co)
+        run_tier("tier4", lambda: tier4(co))
     if a.staged and 5 in tiers:
-        report["tier5"] = tier5(co, a.staged.resolve(), a.golden_cgb.resolve())
+        run_tier("tier5", lambda: tier5(co, a.staged.resolve(), a.golden_cgb.resolve()))
     if a.staged and 6 in tiers:
-        report["tier6"] = tier6(co, a.staged.resolve())
+        run_tier("tier6", lambda: tier6(co, a.staged.resolve()))
     if 7 in tiers:
-        report["tier7"] = tier7(co, a.golden_trace.resolve())
+        run_tier("tier7", lambda: tier7(co, a.golden_trace.resolve()))
     if 8 in tiers:
-        report["tier8"] = tier8(co)
+        run_tier("tier8", lambda: tier8(co))
 
     a.out.write_text(json.dumps(report, indent=2))
     # One-line summary for the console.
