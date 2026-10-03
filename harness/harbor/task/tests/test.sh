@@ -34,6 +34,26 @@ G=/tmp/grade-head
 rm -rf "$G" && mkdir -p "$G"
 git -C /work archive HEAD | tar -x -C "$G"
 [ -d /work/vendor ] && ln -sfn /work/vendor "$G/vendor"
+# Audit trail: exactly what was graded, and with what. `repo.bundle` lets any
+# trial be re-graded later (git clone repo.bundle; grade.py on the clone).
+git -C /work bundle create "$OUT/repo.bundle" --all >/dev/null 2>&1 || true
+python3 - "$OUT/environment.json" <<'PYENV'
+import json, subprocess, sys, time
+def run(*cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=30).stdout.strip()
+    except Exception as e:
+        return f"unavailable: {e}"
+json.dump({
+    "graded_commit": run("git", "-C", "/work", "rev-parse", "HEAD"),
+    "commits": run("git", "-C", "/work", "rev-list", "--count", "HEAD"),
+    "graded_at": int(time.time()),
+    "rustc": run("rustc", "--version"), "node": run("node", "--version"),
+    "chromium": run("chromium", "--version"), "python": run("python3", "--version"),
+    "icode_commit": run("git", "-C", "/opt/icode", "rev-parse", "HEAD"),
+    "jiuwenswarm_commit": run("git", "-C", "/opt/jiuwenswarm", "rev-parse", "HEAD"),
+}, open(sys.argv[1], "w"), indent=2)
+PYENV
 # informational: does the uncommitted working tree build?
 if (cd /work && timeout -k 10 600 cargo build --release --offline -q >/dev/null 2>&1); then WT=1; else WT=0; fi
 echo "{\"working_tree_builds\": $WT, \"uncommitted_files\": $(git -C /work status --porcelain | wc -l)}" > "$OUT/working-tree.json"

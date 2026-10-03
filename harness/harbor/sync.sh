@@ -23,7 +23,8 @@ cp "$H/../gb-core/tests/rom_suite.rs" "$T/tests/frozen/gb-core/tests/"
 cp "$H/../gb-cli/src/main.rs" "$T/tests/frozen/gb-cli/src/"
 
 # product-owner sidecar: the GEP (which the agent also has) + the Open Issue answers
-cp "$H/../GEP-0001.md" "$H/HIDDEN_SPEC.md" "$H/PRODUCT_OWNER.md" "$H/orchestrator/po_agent.py" "$T/environment/po/"
+cp "$H/../GEP-0001.md" "$H/AGENT_BRIEF.md" "$H/HIDDEN_SPEC.md" "$H/PRODUCT_OWNER.md" "$H/orchestrator/po_agent.py" \
+   "$T/environment/po/"
 
 # instruction = the agent brief body
 python3 -c "print(open('$H/AGENT_BRIEF.md').read().split('\n---\n',1)[1].lstrip())" > "$T/instruction.md"

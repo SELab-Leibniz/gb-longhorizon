@@ -74,6 +74,15 @@ def run_roms(co, roms, root, runner, max_hung=3):
 
 def tier0(co):
     r = {}
+    # Harness files must be byte-identical to the frozen originals.
+    frozen = {
+        "gb-core/tests/rom_suite.rs": FROZEN_DIR / "gb-core/tests/rom_suite.rs",
+        "gb-cli/src/main.rs": FROZEN_DIR / "gb-cli/src/main.rs",
+    }
+    r["frozen_files_unchanged"] = {
+        rel: (co / rel).exists() and src.exists() and (co / rel).read_bytes() == src.read_bytes()
+        for rel, src in frozen.items()
+    }
     # The gate is the core + the frozen CLI: a broken new crate (gb-web, …)
     # costs that crate's tiers and the lint score, not every score.
     code, out, err, secs = sh(["cargo", "build", "--release", "--offline", "-p", "gb-core", "-p", "gb-cli"],
@@ -90,15 +99,6 @@ def tier0(co):
     # the frozen CLI prints usage to stderr and exits 1 for --help; any non-panic
     # exit that shows the usage text counts
     r["cli_help"] = {"ok": code in (0, 1) and "--rom" in (out + err)}
-    # Harness files must be byte-identical to the frozen originals.
-    frozen = {
-        "gb-core/tests/rom_suite.rs": FROZEN_DIR / "gb-core/tests/rom_suite.rs",
-        "gb-cli/src/main.rs": FROZEN_DIR / "gb-cli/src/main.rs",
-    }
-    r["frozen_files_unchanged"] = {
-        rel: (co / rel).exists() and src.exists() and (co / rel).read_bytes() == src.read_bytes()
-        for rel, src in frozen.items()
-    }
     return r
 
 

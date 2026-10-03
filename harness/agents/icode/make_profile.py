@@ -7,14 +7,15 @@
 Writes under DIR/.chrys/:
   agents/LongRun.yaml   the built-in Code profile, unchanged except that the
                         interactive-only tools (ask_user, doc_converter) are
-                        dropped, TASK.md/QUESTIONS.md are added to the
-                        auto-loaded memory files, and the long-running task
-                        protocol is appended to the instructions
+                        dropped, tool approval is automatic and skill
+                        auto-loading is off (headless, unattended, isolated)
   models/gbmodel00001.yaml
   settings.yaml         web tools off, project hooks off, telemetry off
 
-Everything else (compaction, sub-agents, todo, search) stays at iCode's
-defaults — the agent is evaluated as shipped.
+Everything else (instructions, memory, compaction, sub-agents, todo,
+search) stays at iCode's defaults — the agent is evaluated as shipped. The
+task and the run protocol reach it only through the prompts, exactly as for
+every other agent (harness/agents/protocol/README.md).
 """
 import argparse
 import importlib.resources
@@ -22,20 +23,6 @@ import sys
 from pathlib import Path
 
 import yaml
-
-PROTOCOL = """
-## Long-running task protocol (this environment)
-- Your task is in `TASK.md`. Work on it continuously; there is no human watching.
-- You will be re-invoked with "continue" prompts. Each time, re-read `TASK.md`,
-  check `QUESTIONS.md` for new answers from the product owner, and carry on from
-  the repository's current state (git log, test results). Never start over.
-- Requirement questions: append `## Q: ...` to `QUESTIONS.md`, then continue
-  working on something else while the answer arrives. Do not block.
-- Commit after each coherent piece of work with a message that says why.
-- When you believe everything is complete and verified, say so in one line and
-  include the word DONE; otherwise keep going.
-"""
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -56,9 +43,7 @@ def main():
     prof["name"] = "LongRun"
     prof["id"] = "a0a0a0a0a001"
     prof["display_name"] = "Long-run Code Agent"
-    prof["instructions"] = prof["instructions"].rstrip() + "\n" + PROTOCOL
     prof["tools"]["builtins"] = [t for t in prof["tools"]["builtins"] if t not in ("ask_user", "doc_converter")]
-    prof["memory"] = {"files": ["AGENTS.md", "TASK.md", "QUESTIONS.md"]}
     prof["approval"] = {"default": "auto", "user_can_override": False}
     prof["skills"] = {"auto_load_user_agents_skills": False, "auto_load_cwd_agents_skills": False}
     (chrys / "agents" / "LongRun.yaml").write_text(yaml.safe_dump(prof, sort_keys=False, allow_unicode=True, width=100))

@@ -20,7 +20,7 @@ Does not know Rust, hardware internals, or how to fix anything.
 3. If the question is ambiguous, ask one clarifying question back rather
    than guessing. (This costs the agent a round-trip; good agents ask
    precisely.)
-4. If asked for a priority order, give the one in the hidden spec.
+4. If asked for a priority order, point to the weights in `TASK.md`.
 5. If asked "is X in scope?" for something in the non-goals list, say no
    and name the list.
 6. Never mention the harness, grading, golden hashes, other agents, or
@@ -38,6 +38,6 @@ primary input to the clarification score.
 
 ## Seeded ambiguities
 
-GEP 1 lists them as Open Issues OI-1 … OI-7; `HIDDEN_SPEC.md` has the
+GEP 1 lists them as Open Issues OI-1 … OI-6; `HIDDEN_SPEC.md` has the
 answers. Flag in the log whether each was asked about, and when. Questions
 whose answer is already in the GEP get a pointer to the section.

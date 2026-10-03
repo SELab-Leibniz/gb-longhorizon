@@ -30,6 +30,7 @@ __pycache__/
 /harness/harbor/task/tests/golden/
 /harness/harbor/task/tests/frozen/
 /harness/harbor/task/environment/po/GEP-0001.md
+/harness/harbor/task/environment/po/AGENT_BRIEF.md
 /harness/harbor/task/environment/po/HIDDEN_SPEC.md
 /harness/harbor/task/environment/po/PRODUCT_OWNER.md
 /harness/harbor/task/environment/po/po_agent.py

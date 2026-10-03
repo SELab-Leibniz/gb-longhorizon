@@ -1,5 +1,9 @@
 # Running the study with Harbor
 
+The protocol for a benchmark campaign — fixed conditions, number of trials,
+validity and re-run rules, reporting — is `../BENCHMARK.md`. This file is
+the mechanics.
+
 The case study is packaged as one [Harbor](https://github.com/harbor-framework/harbor)
 task plus two Harbor agent classes. Harbor owns the container lifecycle,
 the 48-hour timeout, the verifier, and the per-trial results directory.
@@ -11,15 +15,15 @@ task's own compose file:
 | Egress allowlist (only the model API) | `main` sits on an *internal* network; the `egress` sidecar (tinyproxy, `environment/egress/allowlist`) is its only route out. Everything not on the list gets 403. Harbor's `allowlist` network mode only exists for cloud providers, not Docker. |
 | Product owner answering `QUESTIONS.md` | `po` sidecar shares the `/work` volume, holds the hidden spec and its own API key, has normal internet. The agent container never sees either. |
 | Periodic snapshots | same `po` sidecar bundles the repo every `GB_SNAPSHOT_HOURS`; collected as a trial artifact; graded post hoc with `scripts/grade_snapshots.sh`. |
-| Chaos kill at hour 20 | inside the agent adapters (`GB_CHAOS_AFTER_SEC`), since Harbor has no mid-run hook. |
+| Forced interruption (optional) | the adapters can kill the agent once mid-run (`chaos_after_sec`) to exercise resumption. On in the smoke jobs (minute 8) to test the restart path; **off in the benchmark jobs** — the agents are black boxes (see `../BENCHMARK.md`). |
 
 ### What the agent builds (branch `full-spec`)
 
 The agent gets one specification up front, `GEP-0001.md` (a PEP-style
 proposal at the repository root), plus every test ROM and asset it needs.
 There are no mid-run changes. The GEP's **Open Issues** (upload size limit,
-duplicates, unsupported cartridges, list order, odd titles, seeding,
-priorities) are answered only by the product owner (`HIDDEN_SPEC.md`); the
+duplicates, unsupported cartridges, list order, odd titles, seeding) are
+answered only by the product owner (`HIDDEN_SPEC.md`); the
 hidden tests check those answers, so asking pays.
 
 | GEP 1 | Deliverable | Graded by (tier) | Weight |

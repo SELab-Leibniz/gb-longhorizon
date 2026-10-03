@@ -84,7 +84,8 @@ RUN harness/scripts/fetch_assets.sh \
     && rm -rf target/release/incremental
 
 # Adapter scripts (the loop that keeps each agent working for 48 h).
-RUN mkdir -p /opt/gb-agents && cp -r /work/harness/agents/icode /work/harness/agents/jiuwenswarm /opt/gb-agents/
+RUN mkdir -p /opt/gb-agents && cp -r /work/harness/agents/icode /work/harness/agents/jiuwenswarm \
+        /work/harness/agents/protocol /opt/gb-agents/
 
 # ---- strip the harness and reset history ------------------------------------
 # The agent must never see harness/ (hidden spec, goldens, grader) and its

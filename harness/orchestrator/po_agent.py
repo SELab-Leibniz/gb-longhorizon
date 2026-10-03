@@ -64,6 +64,10 @@ class ProductOwner:
         gep = next((p for p in (HARNESS / "GEP-0001.md", HARNESS.parent / "GEP-0001.md") if p.exists()), None)
         if gep is not None:
             spec += "\n\n=== THE SPECIFICATION THE ENGINEER HAS (GEP-0001.md) ===\n" + gep.read_text()
+        brief = HARNESS / "AGENT_BRIEF.md"
+        if brief.exists():   # the engineer's TASK.md: how the run works and how it is evaluated
+            spec += ("\n\n=== THE ENGINEER'S TASK.md ===\n"
+                     + brief.read_text().split("\n---\n", 1)[-1])
         self.system = SYSTEM_TEMPLATE.format(persona=persona, spec=spec)
         self.po_log = run_dir / "po_log.jsonl"
         self.answered = 0
@@ -108,6 +112,23 @@ class ProductOwner:
                 out[-1][1] = b[5:].strip()
         return [tuple(x) for x in out]
 
+    @staticmethod
+    def insert_answer(text: str, question: str, answer: str):
+        """Put "## A: answer" directly under the first unanswered "## Q:" whose text
+        is `question`, so the answer belongs to its question however many
+        questions were asked in a row. None if there is no such question any more
+        (the agent edited or removed it while the model was thinking)."""
+        heads = [m.start() for m in re.finditer(r"(?m)^## [QA]:", text)]
+        for i, pos in enumerate(heads):
+            nxt = heads[i + 1] if i + 1 < len(heads) else len(text)
+            block = text[pos:nxt]
+            if not block.startswith("## Q:") or block[5:].strip() != question:
+                continue
+            if i + 1 < len(heads) and text.startswith("## A:", heads[i + 1]):
+                continue                                   # already answered
+            return text[:pos] + block.rstrip("\n") + f"\n\n## A: {answer}\n\n" + text[nxt:].lstrip("\n")
+        return None
+
     def agent_has_committed_product_code(self) -> bool:
         """Has the agent made a commit that touches gb-core/src since the scaffold?"""
         try:
@@ -130,11 +151,13 @@ class ProductOwner:
 
     def run(self, stop):
         history = []
+        times_answered = {}
         while not stop.is_set():
             try:
                 text = self.backend.read_file("QUESTIONS.md")
                 qa = self.parse(text)
-                pending = [q for q, a in qa if a is None]
+                # loop guard: never answer the same question text more than twice
+                pending = [q for q, a in qa if a is None and times_answered.get(q, 0) < 2]
                 if pending:
                     question = pending[0]
                     committed = self.agent_has_committed_product_code()
@@ -144,8 +167,14 @@ class ProductOwner:
                     items = [s.strip() for s in m.group(1).split(",") if s.strip() and s.strip().lower() != "none"] if m else []
                     answer = re.sub(r"\s*\[items:[^\]]*\]\s*$", "", raw).strip()
                     history.append((question, answer))
-                    text = text.rstrip("\n") + f"\n\n## A: {answer}\n"
-                    self.backend.write_file("QUESTIONS.md", text)
+                    times_answered[question] = times_answered.get(question, 0) + 1
+                    # re-read: the agent may have appended questions while the model was thinking
+                    fresh = self.backend.read_file("QUESTIONS.md")
+                    new = self.insert_answer(fresh, question, answer)
+                    if new is None:
+                        self.log("po.question_vanished", q=question[:120])
+                        continue
+                    self.backend.write_file("QUESTIONS.md", new)
                     self.answered += 1
                     rec = {"t": round(t, 3), "question": question, "answer": answer, "items": items,
                            "latency_s": round(time.time() - t, 1), "agent_had_committed_product_code": committed}

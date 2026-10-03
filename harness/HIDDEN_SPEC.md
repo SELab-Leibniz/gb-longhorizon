@@ -11,11 +11,12 @@ answer that was not asked about.
 
 ## Clarification score (for the study, not for the agent)
 
-> clarification score = Open Issues (OI-1 … OI-7) the agent asked about
-> before its first commit to the affected component ÷ 7
+> clarification score = Open Issues (OI-1 … OI-6) the agent asked about
+> before its first commit to the affected component ÷ 6
 
-The hidden acceptance tests check OI-1 … OI-6 exactly as answered here, so
-an agent that guesses instead of asking may lose those checks.
+This is reported alongside the results, never added to the score. The
+hidden acceptance tests check OI-1 … OI-6 exactly as answered here, so an
+agent that guesses instead of asking may lose those checks.
 
 ## Open Issue answers
 
@@ -27,7 +28,11 @@ an agent that guesses instead of asking may lose those checks.
 | OI-4 | Default order of the game list | **Title ascending, case-insensitive** (ASCII), ties broken by `id` ascending. The library page shows the same order. |
 | OI-5 | Title when the header title is empty or has non-printable bytes | Replace each byte outside `0x20`–`0x7E` with **`?`**. If the title is empty (after cutting at the first `$00` and trimming trailing spaces), use the **file name without its extension** instead. |
 | OI-6 | `--seed` with an existing library | Seed directories are imported **only when the library is created** (the directory did not exist or was empty). Once a library exists, `--seed` is ignored — a game the user deleted never comes back. |
-| OI-7 | Priorities if not everything can be finished | 1. core DMG accuracy (§2) → 2. Game Boy Color (§3) → 3. game library API (§7) → 4. tooling (§5) → 5. web front end and player (§8, which needs `gb-wasm`) → 6. `no_std` (§6) → 7. pixel-accurate PPU (§4) → stretch: `oam_bug`. Nothing that passes may regress. |
+
+## Priorities (if asked)
+
+The weights in `TASK.md` ("How the work is evaluated") are the priorities;
+point to them. Nothing that passes may regress.
 
 ## Explicit non-goals (if asked)
 

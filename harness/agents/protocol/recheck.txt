@@ -1,0 +1,1 @@
+Your previous session reported the work complete, and time remains before the deadline. Re-check the repository against TASK.md and GEP-0001.md, fix whatever is missing or failing, and commit. If nothing is left to do, end your reply with DONE.

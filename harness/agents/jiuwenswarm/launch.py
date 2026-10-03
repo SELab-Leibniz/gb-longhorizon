@@ -6,7 +6,8 @@
 Runs in the workspace (cwd = repo with TASK.md). Keeps a jiuwenswarm code
 agent working until killed:
   * first invocation: `jiuwenswarm-process --run-jsonl` with TASK.md as input
-  * later invocations: same session_id with a "continue" prompt
+  * later invocations: same session_id with the shared continue / recheck
+    prompt (harness/agents/protocol/), as for every agent
   * every interaction card (plan approval, confirmations, ask_user) is
     answered automatically — approve / proceed / "no human available", so the
     agent never blocks; requirement questions go through QUESTIONS.md
@@ -20,7 +21,7 @@ Optional:
   API_BASE          default https://api.deepseek.com
   MODEL_NAME        default deepseek-flash
   MODEL_PROVIDER    default OpenAI        ENDPOINT_PROFILE default deepseek
-  JW_CONTINUE_SLEEP_SEC   pause after a run that reports completion (default 600)
+  JW_CONTINUE_SLEEP_SEC   pause after a run that reports completion (default 180)
 
 Setup is idempotent: $GB_TRAJECTORY_DIR/jw holds JIUWENSWARM_HOME/DATA_DIR,
 so all of jiuwenswarm's state (sessions, checkpoints, traces, logs) travels
@@ -47,25 +48,10 @@ STATE = TRAJ / "jw_state"
 sys.path.insert(0, str(JW_DIR / "sdks" / "python" / "src"))
 from jiuwenswarm_sdk.client import Client  # noqa: E402
 
-CONTINUE_PROMPT = (
-    "Continue working on the task in TASK.md. First check QUESTIONS.md for new answers "
-    "from the product owner, "
-    "and git log / test results for the current state. Keep going until everything is "
-    "complete and verified; say DONE only then."
-)
-RECHECK_PROMPT = (
-    "Re-verify the project against TASK.md and GEP-0001.md: look for new product-owner "
-    "answers, run every check in TESTING.md and the GEP acceptance table, fix any regressions, "
-    "and close remaining gaps. If everything passes and nothing is left, say DONE."
-)
-PROTOCOL = """
-Long-running task protocol: there is no human watching. You will be re-invoked with
-"continue" prompts; each time re-read TASK.md, check QUESTIONS.md for new product-owner
-answers, and carry on from the repository's current state — never start over.
-Requirement questions: append "## Q: ..." to QUESTIONS.md and keep working on something
-else while the answer arrives. Commit after each coherent piece of work. Say DONE only
-when everything is complete and verified.
-"""
+# Same prompts for every agent (harness/agents/protocol/README.md)
+PROTOCOL_DIR = Path(__file__).resolve().parent.parent / "protocol"
+CONTINUE_PROMPT = (PROTOCOL_DIR / "continue.txt").read_text().strip()
+RECHECK_PROMPT = (PROTOCOL_DIR / "recheck.txt").read_text().strip()
 
 
 def log(event, **f):
@@ -163,7 +149,7 @@ async def answer_interaction(record):
             "question": q.get("question", ""),
             "selected_options": [pick] if pick else [],
             "custom_input": "" if pick else
-            "No human is available. Proceed with your best judgement; put requirement questions in QUESTIONS.md as '## Q:' headings.",
+            "No human is available. Proceed with your best judgement (TASK.md says how to reach the product owner).",
         }
         if q.get("card_id"):
             ans["card_id"] = q["card_id"]
@@ -188,7 +174,6 @@ async def one_run(session_id, prompt, events_path):
         "input": prompt,
         "mode": "agent.code.normal",
         "workspace": {"cwd": str(WORK), "project_dir": str(WORK), "trusted_dirs": [str(WORK)]},
-        "agent": {"name": "coder", "instructions": PROTOCOL.strip()},
     }
     if session_id:
         req["session_id"] = session_id
@@ -272,7 +257,7 @@ def main():
     last_done = False
     while True:
         if not session:
-            prompt = (WORK / "TASK.md").read_text() + "\n" + PROTOCOL
+            prompt = (WORK / "TASK.md").read_text()
         else:
             prompt = RECHECK_PROMPT if last_done else CONTINUE_PROMPT
         events_path = TRAJ / f"jw_events_{int(time.time())}.jsonl"

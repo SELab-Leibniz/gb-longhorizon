@@ -18,7 +18,7 @@
 #   ICODE_PROVIDER     deepseek-openai (default) | openai | mock
 #   ICODE_MODEL        deepseek-flash (default)
 #   ICODE_BASE_URL     override endpoint
-#   ICODE_CONTINUE_SLEEP_SEC   pause between invocations after a DONE (default 600)
+#   ICODE_CONTINUE_SLEEP_SEC   pause between invocations after a DONE (default 180)
 set -uo pipefail
 
 : "${ICODE_DIR:?set ICODE_DIR to the iCode checkout}"
@@ -46,8 +46,9 @@ log() { printf '{"t":%s,"event":"%s"%s}\n' "$(date +%s)" "$1" "${2:-}" >> "$LOG"
 "$PY" "$HERE/make_profile.py" --home "$HOME" \
       --provider "$ICODE_PROVIDER" --model "$ICODE_MODEL" ${ICODE_BASE_URL:+--base-url "$ICODE_BASE_URL"}
 
-CONTINUE_PROMPT='Continue working on the task in TASK.md. First check QUESTIONS.md for new answers from the product owner, and git log / test results for the current state. Keep going until everything is complete and verified; say DONE only then.'
-RECHECK_PROMPT='Re-verify the project against TASK.md and GEP-0001.md: look for new product-owner answers, run every check in TESTING.md and the GEP acceptance table, fix any regressions, and close remaining gaps. If everything passes and nothing is left, say DONE.'
+# Same prompts for every agent (harness/agents/protocol/README.md)
+CONTINUE_PROMPT="$(cat "$HERE/../protocol/continue.txt")"
+RECHECK_PROMPT="$(cat "$HERE/../protocol/recheck.txt")"
 
 # ---- process control ---------------------------------------------------
 # iCode renames its process (it shows up as "chrys"), so never match by name:

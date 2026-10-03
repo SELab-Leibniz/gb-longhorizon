@@ -38,7 +38,7 @@ class _GbAgent(BaseInstalledAgent):
     ADAPTER_DIR = "/opt/gb-agents"
 
     def __init__(self, logs_dir: Path, model_name: str | None = None, run_seconds: int = 172_500,
-                 chaos_after_sec: int = 72_000, model: str | None = None, **kwargs):
+                 chaos_after_sec: int = 0, model: str | None = None, **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self.run_seconds = int(run_seconds)
         self.chaos_after_sec = int(chaos_after_sec)
