@@ -141,6 +141,16 @@ the cache. Then check, in `jobs/gb-smoke/<trial>/` (and `jobs/gb-smoke-jiuwenswa
 `harness/scripts/summarize.py jobs/gb-smoke jobs/gb-smoke-jiuwenswarm` prints
 the same in one table (valid = ✓✓).
 
+### Long runs: start them detached
+
+Start any run longer than an hour so that it survives the shell it was
+started from, e.g. `nohup harbor run -c … -y > run.log 2>&1 & disown`, and
+keep the machine awake (`caffeinate -ims` on macOS). If the `harbor run`
+process dies, Harbor stops the trial's agent container and the verifier
+never runs. That happened to the first v2 pilot
+(`reports/2026-10-03-pilot-v2.md`), whose launcher killed background jobs
+after 2 hours.
+
 ### Showcase-v2: issue waves
 
 On `showcase-v2` the backlog is filed in waves during the run (`SHOWCASE.md`,
