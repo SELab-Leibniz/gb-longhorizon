@@ -136,46 +136,16 @@ impl Cpu {
     }
 
     /// Append CPU state to a save-state buffer.
+    #[allow(unused_variables)]
+    #[allow(clippy::ptr_arg)]
     pub fn save_state(&self, out: &mut Vec<u8>) {
-        out.extend_from_slice(&[
-            self.regs.a,
-            self.regs.f,
-            self.regs.b,
-            self.regs.c,
-            self.regs.d,
-            self.regs.e,
-            self.regs.h,
-            self.regs.l,
-        ]);
-        out.extend_from_slice(&self.regs.sp.to_le_bytes());
-        out.extend_from_slice(&self.regs.pc.to_le_bytes());
-        out.push(self.ime as u8);
-        out.push(self.ime_pending as u8);
-        out.push(self.halted as u8);
-        out.push(self.halt_bug as u8);
+        todo!("append the CPU's registers and flags to `out` (R-CORE-6)")
     }
 
     /// Restore CPU state from a save-state buffer, advancing `cursor`.
+    #[allow(unused_variables)]
     pub fn load_state(&mut self, state: &[u8], cursor: &mut usize) -> Result<(), StateError> {
-        let s = state
-            .get(*cursor..*cursor + 16)
-            .ok_or(StateError::Truncated)?;
-        *cursor += 16;
-        self.regs.a = s[0];
-        self.regs.f = s[1];
-        self.regs.b = s[2];
-        self.regs.c = s[3];
-        self.regs.d = s[4];
-        self.regs.e = s[5];
-        self.regs.h = s[6];
-        self.regs.l = s[7];
-        self.regs.sp = u16::from_le_bytes([s[8], s[9]]);
-        self.regs.pc = u16::from_le_bytes([s[10], s[11]]);
-        self.ime = s[12] != 0;
-        self.ime_pending = s[13] != 0;
-        self.halted = s[14] != 0;
-        self.halt_bug = s[15] != 0;
-        Ok(())
+        todo!("restore the CPU's state written by save_state (R-CORE-6)")
     }
 }
 

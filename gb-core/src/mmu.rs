@@ -304,25 +304,9 @@ impl Mmu {
         }
     }
 
+    #[allow(unused_variables)]
     fn start_oam_dma(&mut self, value: u8) {
-        self.oam_dma_reg = value;
-        // A transfer started while another one is still in its two-M-cycle
-        // startup (no byte copied yet) does *not* re-arm that startup: the DMA
-        // controller has already begun taking the bus, so the bus lock still
-        // lands two M-cycles after the first write. Mooneye's `oam_dma_start`
-        // measures exactly this — one `LD [HL],A` to $FF46 leaves the CPU able
-        // to execute one instruction out of OAM, a second back-to-back write
-        // leaves it unable to execute any. Once the transfer is actually
-        // running (`byte > 0`), a restart does re-arm the delay.
-        let delay = match self.oam_dma {
-            Some(ref d) if d.byte == 0 => d.delay,
-            _ => 8,
-        };
-        self.oam_dma = Some(OamDma {
-            source: (value as u16) << 8,
-            byte: 0,
-            delay,
-        });
+        todo!("start an OAM DMA from page `value` (write to $FF46)")
     }
 
     fn hdma_read(&self, addr: u16) -> u8 {
@@ -336,84 +320,18 @@ impl Mmu {
         }
     }
 
+    #[allow(unused_variables)]
     fn hdma_write(&mut self, addr: u16, value: u8) {
-        match addr {
-            0xFF51 => self.hdma.src = (self.hdma.src & 0x00FF) | ((value as u16) << 8),
-            0xFF52 => self.hdma.src = (self.hdma.src & 0xFF00) | (value as u16 & 0xF0),
-            0xFF53 => self.hdma.dst = (self.hdma.dst & 0x00FF) | ((value as u16 & 0x1F) << 8),
-            0xFF54 => self.hdma.dst = (self.hdma.dst & 0xFF00) | (value as u16 & 0xF0),
-            0xFF55 => {
-                let len = (value & 0x7F) + 1;
-                if value & 0x80 == 0 {
-                    // General-purpose DMA: copy everything now.
-                    self.hdma.remaining = len;
-                    self.hdma.active = true;
-                    while self.hdma.remaining > 0 {
-                        self.hdma_transfer_block();
-                    }
-                    self.hdma.active = false;
-                    self.hdma.remaining = 0;
-                } else {
-                    self.hdma.active = true;
-                    self.hdma.hblank = true;
-                    self.hdma.remaining = len;
-                }
-            }
-            _ => {}
-        }
+        todo!("CGB HDMA registers $FF51-$FF55: general-purpose and H-blank transfers (R-CGB-1)")
     }
 
     fn hdma_transfer_block(&mut self) {
-        if self.hdma.remaining == 0 {
-            self.hdma.active = false;
-            return;
-        }
-        for _ in 0..16 {
-            let src = self.hdma.src;
-            let dst = self.hdma.dst;
-            let v = self.read_internal(src);
-            let bank = (dst >> 12) & 1;
-            let offset = (dst & 0x1FF0) as usize;
-            self.ppu.write_vram_bank(bank, offset, v);
-            self.hdma.src = self.hdma.src.wrapping_add(1);
-            self.hdma.dst = self.hdma.dst.wrapping_add(1);
-        }
-        self.hdma.remaining = self.hdma.remaining.wrapping_sub(1);
-        if self.hdma.remaining == 0 {
-            self.hdma.active = false;
-        }
+        todo!("copy one 16-byte HDMA block from source to VRAM")
     }
 
+    #[allow(unused_variables)]
     fn tick_dma(&mut self, real: u32) {
-        if let Some(mut dma) = self.oam_dma.take() {
-            let mut t = real;
-            while t > 0 && dma.byte < 160 {
-                if dma.delay == 0 {
-                    // On both models the DMA source address is decoded like the
-                    // CPU bus, except that the upper 8 KiB mirrors WRAM: only
-                    // the low 13 address bits reach the WRAM chip, so a source
-                    // of $E000-$FFFF (including $FE00/$FF00) reads
-                    // $C000-$DFFF (i.e. $DE00/$DF00) instead of OAM/IO/HRAM.
-                    // Mooneye's `oam_dma/sources-GS` deliberately fills $DE00
-                    // and $DF00 with different patterns and DMA-reads them via
-                    // source bytes $FE and $FF to check exactly this.
-                    let mut a = dma.source.wrapping_add(dma.byte);
-                    if a >= 0xE000 {
-                        a = (a & 0x1FFF) | 0xC000;
-                    }
-                    let v = self.read_internal(a);
-                    self.ppu.write_oam(dma.byte as usize, v);
-                    dma.byte += 1;
-                    dma.delay = 4;
-                }
-                let step = dma.delay.min(t);
-                dma.delay -= step;
-                t -= step;
-            }
-            if dma.byte < 160 {
-                self.oam_dma = Some(dma);
-            }
-        }
+        todo!("advance OAM DMA and H-blank HDMA by `real` master-clock cycles")
     }
 
     /// One CPU memory-read M-cycle: advance all peripherals by 4 T-cycles and
@@ -486,91 +404,15 @@ impl Mmu {
     }
 
     /// Append bus + peripheral state to a save-state buffer.
+    #[allow(unused_variables)]
+    #[allow(clippy::ptr_arg)]
     pub fn save_state(&self, out: &mut Vec<u8>) {
-        out.push(self.interrupts.flags);
-        out.push(self.interrupts.enable);
-        out.extend_from_slice(&(self.wram.len() as u32).to_le_bytes());
-        out.extend_from_slice(&self.wram);
-        out.extend_from_slice(&self.hram);
-        out.push(self.key1);
-        out.push(self.svbk);
-        out.push(self.rp);
-        out.push(self.speed as u8);
-        out.push(self.boot_disabled as u8);
-        out.push(self.oam_dma_reg);
-        match &self.oam_dma {
-            Some(d) => {
-                out.push(1);
-                out.extend_from_slice(&d.source.to_le_bytes());
-                out.extend_from_slice(&d.byte.to_le_bytes());
-                out.extend_from_slice(&d.delay.to_le_bytes());
-            }
-            None => out.push(0),
-        }
-        out.extend_from_slice(&self.hdma.src.to_le_bytes());
-        out.extend_from_slice(&self.hdma.dst.to_le_bytes());
-        out.push(self.hdma.active as u8);
-        out.push(self.hdma.hblank as u8);
-        out.push(self.hdma.remaining);
-        self.cartridge.save_state(out);
-        self.ppu.save_state(out);
-        self.apu.save_state(out);
-        self.timer.save_state(out);
-        self.joypad.save_state(out);
-        self.serial.save_state(out);
+        todo!("append the bus state (WRAM/HRAM, banks, DMA, I/O) and its peripherals' state to `out` (R-CORE-6)")
     }
 
     /// Restore from a save-state buffer, advancing `cursor`.
+    #[allow(unused_variables)]
     pub fn load_state(&mut self, state: &[u8], cursor: &mut usize) -> Result<(), StateError> {
-        let get = |n: usize, cursor: &mut usize| -> Result<&[u8], StateError> {
-            let s = state
-                .get(*cursor..*cursor + n)
-                .ok_or(StateError::Truncated)?;
-            *cursor += n;
-            Ok(s)
-        };
-        let b = get(2, cursor)?;
-        self.interrupts.flags = b[0] & 0x1F;
-        self.interrupts.enable = b[1];
-        let b = get(4, cursor)?;
-        let wlen = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
-        if wlen != self.wram.len() {
-            return Err(StateError::Corrupt("WRAM size mismatch"));
-        }
-        let b = get(wlen, cursor)?;
-        self.wram.copy_from_slice(b);
-        let b = get(0x7F, cursor)?;
-        self.hram.copy_from_slice(b);
-        let b = get(7, cursor)?;
-        self.key1 = b[0];
-        self.svbk = b[1];
-        self.rp = b[2];
-        self.speed = b[3] != 0;
-        self.boot_disabled = b[4] != 0;
-        self.oam_dma_reg = b[5];
-        let flag = b[6];
-        if flag != 0 {
-            let d = get(8, cursor)?;
-            self.oam_dma = Some(OamDma {
-                source: u16::from_le_bytes([d[0], d[1]]),
-                byte: u16::from_le_bytes([d[2], d[3]]),
-                delay: u32::from_le_bytes([d[4], d[5], d[6], d[7]]),
-            });
-        } else {
-            self.oam_dma = None;
-        }
-        let b = get(7, cursor)?;
-        self.hdma.src = u16::from_le_bytes([b[0], b[1]]);
-        self.hdma.dst = u16::from_le_bytes([b[2], b[3]]);
-        self.hdma.active = b[4] != 0;
-        self.hdma.hblank = b[5] != 0;
-        self.hdma.remaining = b[6];
-        self.cartridge.load_state(state, cursor)?;
-        self.ppu.load_state(state, cursor)?;
-        self.apu.load_state(state, cursor)?;
-        self.timer.load_state(state, cursor)?;
-        self.joypad.load_state(state, cursor)?;
-        self.serial.load_state(state, cursor)?;
-        Ok(())
+        todo!("restore the bus state written by save_state (R-CORE-6)")
     }
 }

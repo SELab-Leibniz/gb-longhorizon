@@ -65,52 +65,9 @@ impl Timer {
     }
 
     /// Write FF04–FF07.
+    #[allow(unused_variables)]
     pub fn write(&mut self, addr: u16, value: u8) {
-        match addr {
-            0xFF04 => {
-                // Reset the counter; if the selected bit falls, TIMA ticks.
-                self.set_counter(0);
-            }
-            0xFF05 => {
-                if self.reload_pending {
-                    if self.reload_delay > 0 {
-                        // Cycle A: the overflow is cancelled — the written
-                        // value stays and no interrupt is raised.
-                        self.reload_pending = false;
-                        self.reload_delay = 0;
-                        self.reload_b = 0;
-                        self.tima = value;
-                    }
-                    // Cycle B: the write is overwritten by the reload, so it
-                    // is dropped here.
-                } else {
-                    self.tima = value;
-                }
-            }
-            0xFF06 => {
-                self.tma = value;
-                if self.reload_pending && self.reload_delay == 0 {
-                    // Cycle B: TIMA constantly copies its input, so a TMA
-                    // write reaches TIMA on the same cycle.
-                    self.tima = value;
-                }
-            }
-            0xFF07 => {
-                let old = self.tac;
-                self.tac = value;
-                // Changing TAC can disable the timer or switch the selected
-                // bit, either of which is a falling edge.
-                if let Some(old_bit) = Self::selected_bit(old) {
-                    if (self.counter >> old_bit) & 1 == 1 {
-                        match Self::selected_bit(self.tac) {
-                            Some(new_bit) if new_bit == old_bit => {}
-                            _ => self.increment_tima(),
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
+        todo!("DIV/TIMA/TMA/TAC writes, including the falling-edge effects of DIV and TAC writes (R-CORE-2)")
     }
 
     /// Advance `cycles` T-cycles. Returns IF bits to raise (bit 2) or 0.
@@ -160,76 +117,24 @@ impl Timer {
     }
 
     fn increment_tima(&mut self) {
-        if self.reload_pending {
-            return;
-        }
-        if self.tima == 0xFF {
-            // Cycle A: TIMA is $00 until the reload one M-cycle later.
-            self.tima = 0x00;
-            self.reload_pending = true;
-            self.reload_delay = CYCLE_A_TICKS;
-            self.reload_b = 0;
-        } else {
-            self.tima = self.tima.wrapping_add(1);
-        }
+        todo!("increment TIMA, handling overflow and the delayed TMA reload")
     }
 
     fn tick_t(&mut self) -> bool {
-        let mut irq = false;
-        // The overflow/reload state machine runs before the counter edge, so
-        // the reload lands exactly CYCLE_A_TICKS T-cycles after the overflow.
-        if self.reload_pending {
-            if self.reload_delay > 0 {
-                self.reload_delay -= 1;
-                if self.reload_delay == 0 {
-                    self.tima = self.tma;
-                    self.reload_b = CYCLE_B_TICKS;
-                    irq = true;
-                }
-            } else {
-                self.reload_b -= 1;
-                if self.reload_b == 0 {
-                    self.reload_pending = false;
-                }
-            }
-        }
-        if let Some(b) = Self::selected_bit(self.tac) {
-            let old = self.counter;
-            self.counter = self.counter.wrapping_add(1);
-            if (old >> b) & 1 == 1 && (self.counter >> b) & 1 == 0 {
-                self.increment_tima();
-            }
-        } else {
-            self.counter = self.counter.wrapping_add(1);
-        }
-        irq
+        todo!("advance the internal counter by one T-cycle; return true when TIMA overflows")
     }
 
     /// Append state to a save-state buffer.
+    #[allow(unused_variables)]
+    #[allow(clippy::ptr_arg)]
     pub fn save_state(&self, out: &mut Vec<u8>) {
-        out.extend_from_slice(&self.counter.to_le_bytes());
-        out.push(self.tima);
-        out.push(self.tma);
-        out.push(self.tac);
-        out.push(self.reload_pending as u8);
-        out.push(self.reload_delay);
-        out.push(self.reload_b);
+        todo!("append the timer's state to `out` (R-CORE-6)")
     }
 
     /// Restore from a save-state buffer.
+    #[allow(unused_variables)]
     pub fn load_state(&mut self, state: &[u8], cursor: &mut usize) -> Result<(), StateError> {
-        let b = state
-            .get(*cursor..*cursor + 8)
-            .ok_or(StateError::Truncated)?;
-        self.counter = u16::from_le_bytes([b[0], b[1]]);
-        self.tima = b[2];
-        self.tma = b[3];
-        self.tac = b[4];
-        self.reload_pending = b[5] != 0;
-        self.reload_delay = b[6];
-        self.reload_b = b[7];
-        *cursor += 8;
-        Ok(())
+        todo!("restore the timer's state written by save_state (R-CORE-6)")
     }
 }
 

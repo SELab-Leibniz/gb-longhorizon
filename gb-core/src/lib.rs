@@ -27,6 +27,10 @@
 //! See `DECISIONS.md` at the repository root for the architectural
 //! choices that are already fixed (cycle model, boot behaviour, etc.).
 
+// Some functions in this crate are stubs (`todo!()`, see their doc comments); the
+// helpers they used are still here, so they show up as unused until the stubs are
+// implemented again. Remove this allow when they are.
+#![allow(dead_code, unused_imports)]
 #![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

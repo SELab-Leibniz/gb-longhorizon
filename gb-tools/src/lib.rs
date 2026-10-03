@@ -3,6 +3,11 @@
 //! Both binaries are zero-dependency: the JSON codec and the SM83
 //! disassembler live here so they can be unit-tested once.
 
+// Some functions in this crate are stubs (`todo!()`, see their doc comments); the
+// helpers they used are still here, so they show up as unused until the stubs are
+// implemented again. Remove this allow when they are.
+#![allow(dead_code, unused_imports)]
+
 pub mod disasm;
 pub mod json;
 

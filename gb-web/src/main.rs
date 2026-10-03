@@ -10,6 +10,11 @@
 //! answered with `500 emulation_failed` so a single bad request never takes
 //! the server down (R-BASE-6).
 
+// Some functions in this crate are stubs (`todo!()`, see their doc comments); the
+// helpers they used are still here, so they show up as unused until the stubs are
+// implemented again. Remove this allow when they are.
+#![allow(dead_code, unused_imports)]
+
 mod http;
 mod json;
 mod png;
@@ -310,74 +315,9 @@ struct ListQuery {
     offset: Option<usize>,
 }
 
+#[allow(unused_variables)]
 fn api_list(app: &App, request: &Request) -> Response {
-    let mut query = ListQuery::default();
-    for (key, value) in request.query_params() {
-        match key.as_str() {
-            "q" => query.q = Some(value),
-            "cgb" => {
-                if !matches!(value.as_str(), "none" | "dual" | "only") {
-                    return bad_request("`cgb` must be none, dual or only");
-                }
-                query.cgb = Some(value);
-            }
-            "mapper" => {
-                if !is_mapper_name(&value) {
-                    return bad_request("`mapper` is not a known mapper");
-                }
-                query.mapper = Some(value);
-            }
-            "playable" => match value.as_str() {
-                "true" => query.playable = Some(true),
-                "false" => query.playable = Some(false),
-                _ => return bad_request("`playable` must be true or false"),
-            },
-            "sort" => {
-                if !matches!(value.as_str(), "title" | "added" | "size") {
-                    return bad_request("`sort` must be title, added or size");
-                }
-                query.sort = Some(value);
-            }
-            "order" => {
-                if !matches!(value.as_str(), "asc" | "desc") {
-                    return bad_request("`order` must be asc or desc");
-                }
-                query.order = Some(value);
-            }
-            "limit" => match value.parse::<usize>() {
-                Ok(n) if n >= 1 => query.limit = Some(n),
-                _ => return bad_request("`limit` must be a positive integer"),
-            },
-            "offset" => match value.parse::<usize>() {
-                Ok(n) => query.offset = Some(n),
-                Err(_) => return bad_request("`offset` must be a non-negative integer"),
-            },
-            _ => {}
-        }
-    }
-
-    let mut games: Vec<Game> = app
-        .store
-        .games()
-        .into_iter()
-        .filter(|game| game_matches(game, &query))
-        .collect();
-    sort_games(&mut games, &query);
-
-    let total = games.len();
-    let offset = query.offset.unwrap_or(0);
-    let limit = query.limit.unwrap_or(usize::MAX);
-    let mut body = String::from("{\"total\":");
-    body.push_str(&total.to_string());
-    body.push_str(",\"games\":[");
-    for (index, game) in games.iter().skip(offset).take(limit).enumerate() {
-        if index > 0 {
-            body.push(',');
-        }
-        body.push_str(&game.to_json());
-    }
-    body.push_str("]}");
-    Response::json(200, body)
+    todo!("GET /api/games: filters, search, sort, order, paging (Appendix D.3)")
 }
 
 fn game_matches(game: &Game, query: &ListQuery) -> bool {
@@ -473,115 +413,14 @@ fn api_rom(app: &App, id: &str, method: &str) -> Response {
     )
 }
 
+#[allow(unused_variables)]
 fn api_screenshot(app: &App, id: &str, request: Request) -> Response {
-    if request.method != "GET" {
-        return method_not_allowed();
-    }
-    if !valid_id(id) {
-        return Response::error(404, "unknown game", "not_found");
-    }
-    let Some(game) = find_game(app, id) else {
-        return Response::error(404, "unknown game", "not_found");
-    };
-
-    let mut frames = DEFAULT_FRAMES;
-    let mut model_param = String::from("auto");
-    for (key, value) in request.query_params() {
-        match key.as_str() {
-            "frames" => match value.parse::<u32>() {
-                Ok(n) if (1..=MAX_FRAMES).contains(&n) => frames = n,
-                _ => return bad_request("`frames` must be between 1 and 3600"),
-            },
-            "model" => match value.as_str() {
-                "dmg" | "cgb" | "auto" => model_param = value,
-                _ => return bad_request("`model` must be dmg, cgb or auto"),
-            },
-            _ => {}
-        }
-    }
-
-    if !game.playable {
-        return Response::error(422, "cartridge is not supported", "unsupported_cartridge");
-    }
-    let model = match model_param.as_str() {
-        "dmg" => Model::Dmg,
-        "cgb" => {
-            if game.cgb == "none" {
-                return bad_request("cartridge does not support CGB mode");
-            }
-            Model::Cgb
-        }
-        _ => {
-            if game.cgb == "none" {
-                Model::Dmg
-            } else {
-                Model::Cgb
-            }
-        }
-    };
-
-    let key = (id.to_string(), frames, model as u8);
-    if let Some(png) = lock(&app.cache).get(&key).cloned() {
-        return Response::new(200, "image/png", png);
-    }
-    let png = match render_screenshot(app, id, frames, model) {
-        Ok(png) => png,
-        Err(response) => return response,
-    };
-    {
-        let mut cache = lock(&app.cache);
-        if cache.len() >= SCREENSHOT_CACHE {
-            if let Some(oldest) = cache.keys().next().cloned() {
-                cache.remove(&oldest);
-            }
-        }
-        cache.insert(key, png.clone());
-    }
-    Response::new(200, "image/png", png)
+    todo!("GET /api/games/{id}/screenshot.png: parameters, caching, errors (Appendix D.6)")
 }
 
+#[allow(unused_variables)]
 fn render_screenshot(app: &App, id: &str, frames: u32, model: Model) -> Result<Vec<u8>, Response> {
-    let Some(rom) = app.store.rom(id) else {
-        return Err(Response::error(404, "unknown game", "not_found"));
-    };
-    let mut emulator = Emulator::load_with_model(&rom, model)
-        .map_err(|_| Response::error(422, "cartridge is not supported", "unsupported_cartridge"))?;
-    let start = Instant::now();
-    for _ in 0..frames {
-        emulator.step_frame();
-        if start.elapsed() > RENDER_BUDGET {
-            return Err(Response::error(
-                500,
-                "screenshot render timed out",
-                "emulation_failed",
-            ));
-        }
-    }
-
-    let png = match model {
-        Model::Dmg => {
-            let mut pixels = Vec::with_capacity(SCREEN_WIDTH * SCREEN_HEIGHT);
-            for &shade in emulator.framebuffer() {
-                pixels.push(255 - 85 * (shade & 3));
-            }
-            png::encode(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32, 1, &pixels)
-        }
-        Model::Cgb => {
-            let mut pixels = Vec::with_capacity(SCREEN_WIDTH * SCREEN_HEIGHT * 3);
-            for &pixel in emulator.framebuffer_rgb555() {
-                for shift in [0u16, 5, 10] {
-                    let channel = ((pixel >> shift) & 0x1F) as u8;
-                    pixels.push((channel << 3) | (channel >> 2));
-                }
-            }
-            png::encode(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32, 3, &pixels)
-        }
-    };
-
-    let mut stats = lock(&app.stats);
-    stats.screenshots_rendered += 1;
-    stats.emulated_frames += u64::from(frames);
-    Ok(png)
+    todo!("run the game headless for `frames` frames and encode the frame as PNG (Appendix D.6)")
 }
 
 fn api_save(app: &App, id: &str, request: Request) -> Response {
@@ -623,77 +462,9 @@ fn api_save(app: &App, id: &str, request: Request) -> Response {
     }
 }
 
+#[allow(unused_variables)]
 fn api_upload(app: &App, request: Request) -> Response {
-    if request.body_truncated || request.body.len() > store::MAX_UPLOAD {
-        return upload_result(
-            app,
-            Response::error(413, "upload exceeds the 8 MiB limit", "too_large"),
-        );
-    }
-
-    let content_type = request.header("content-type").unwrap_or("").to_string();
-    let lower = content_type.to_ascii_lowercase();
-    let (data, filename) = if lower.starts_with("multipart/form-data") {
-        let Some(boundary) = multipart_boundary(&content_type) else {
-            return upload_result(app, bad_request("multipart body without a boundary"));
-        };
-        let Some(part) = parse_multipart(&request.body, &boundary)
-            .into_iter()
-            .find(|part| part.name == "rom")
-        else {
-            return upload_result(app, bad_request("multipart body has no `rom` part"));
-        };
-        let name = part
-            .filename
-            .as_deref()
-            .map(store::sanitize_filename)
-            .unwrap_or_else(|| "upload.gb".to_string());
-        (part.data, name)
-    } else if lower.starts_with("application/octet-stream") {
-        let name = store::sanitize_filename(request.header("x-filename").unwrap_or("upload.gb"));
-        (request.body, name)
-    } else {
-        return upload_result(
-            app,
-            Response::error(
-                415,
-                "upload must be multipart/form-data or application/octet-stream",
-                "unsupported_media_type",
-            ),
-        );
-    };
-
-    if let Err(error) = store::validate_rom(&data) {
-        return upload_result(
-            app,
-            Response::error(400, rom_error_message(error), error.code()),
-        );
-    }
-
-    let game = Game::from_rom(&data, &filename, unix_now());
-    let _guard = lock(&app.upload_lock);
-    if app.store.has(&game.id) {
-        let body = format!(
-            "{{\"error\":\"game is already in the library\",\"code\":\"duplicate\",\"id\":\"{}\"}}",
-            game.id
-        );
-        return upload_result(app, Response::json(409, body));
-    }
-    if !game.playable {
-        return upload_result(
-            app,
-            Response::error(422, "cartridge is not supported", "unsupported_cartridge"),
-        );
-    }
-    if let Err(error) = app.store.insert(&game, &data) {
-        eprintln!("gb-web: insert failed: {error}");
-        return upload_result(
-            app,
-            Response::error(500, "could not store the upload", "emulation_failed"),
-        );
-    }
-    lock(&app.stats).uploads_accepted += 1;
-    Response::json(201, game.to_json()).with_header("Location", format!("/api/games/{}", game.id))
+    todo!("POST /api/games: multipart or raw upload, validation and the product owner's upload rules (Appendix D.4)")
 }
 
 /// Count a 4xx upload answer in the statistics and return it unchanged.

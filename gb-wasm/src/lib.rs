@@ -13,6 +13,11 @@
 //! crate itself forbids it. WebAssembly is single-threaded, so the `static
 //! mut` state has exactly one accessor alive at a time.
 
+// Some functions in this crate are stubs (`todo!()`, see their doc comments); the
+// helpers they used are still here, so they show up as unused until the stubs are
+// implemented again. Remove this allow when they are.
+#![allow(dead_code, unused_imports)]
+
 use gb_core::joypad::Buttons;
 use gb_core::{Emulator, Model};
 
@@ -61,20 +66,9 @@ fn buttons_from_mask(mask: u8) -> Buttons {
 }
 
 /// Recompute the bytes `gb_frame_ptr` points at for the current model.
+#[allow(unused_variables)]
 fn refresh_frame(s: &mut State) {
-    s.frame.clear();
-    let Some(emu) = s.emu.as_ref() else {
-        return;
-    };
-    if s.cgb {
-        // 160×144 RGB555, little-endian: exactly what `gb --hash` hashes.
-        for px in emu.framebuffer_rgb555() {
-            s.frame.extend_from_slice(&px.to_le_bytes());
-        }
-    } else {
-        // 160×144 two-bit shades.
-        s.frame.extend_from_slice(emu.framebuffer());
-    }
+    todo!("copy the emulator's current frame (shades or RGB555 LE) into the exported buffer (Appendix C)")
 }
 
 /// Allocate `len` bytes the host can write a ROM into, returning the address.
@@ -97,41 +91,17 @@ pub extern "C" fn gb_alloc(len: usize) -> *mut u8 {
 /// `ptr` must point at at least `len` readable bytes (typically the result of
 /// `gb_alloc`); the host guarantees this.
 #[no_mangle]
+#[allow(unused_variables)]
 pub unsafe extern "C" fn gb_load(ptr: *const u8, len: usize, model: i32) -> i32 {
-    if ptr.is_null() {
-        return -1;
-    }
-    let rom = core::slice::from_raw_parts(ptr, len);
-    let model = if model == 1 { Model::Cgb } else { Model::Dmg };
-    let s = state();
-    match Emulator::load_with_model(rom, model) {
-        Ok(mut emu) => {
-            emu.set_buttons(buttons_from_mask(s.buttons));
-            s.emu = Some(emu);
-            s.cgb = model == Model::Cgb;
-            refresh_frame(s);
-            0
-        }
-        Err(_) => {
-            s.emu = None;
-            refresh_frame(s);
-            -1
-        }
-    }
+    todo!("load a ROM from linear memory, model 0 = DMG, 1 = CGB; 0 on success (Appendix C)")
 }
 
 /// Run `n` frames (as [`Emulator::step_frame`]); returns total frames since
 /// load. Negative `n` runs nothing.
 #[no_mangle]
+#[allow(unused_variables)]
 pub extern "C" fn gb_run_frames(n: i32) -> i32 {
-    let s = state();
-    if let Some(emu) = s.emu.as_mut() {
-        for _ in 0..n.max(0) {
-            emu.step_frame();
-        }
-    }
-    refresh_frame(s);
-    s.emu.as_ref().map_or(0, |e| e.frames() as i32)
+    todo!("run n frames with the held buttons; return total frames since load (Appendix C)")
 }
 
 /// Set the held buttons (bits: 0 RIGHT, 1 LEFT, 2 UP, 3 DOWN, 4 A, 5 B,

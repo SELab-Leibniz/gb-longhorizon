@@ -207,60 +207,9 @@ impl Ppu {
 
     /// Advance `cycles` dots. Returns the IF bits to raise
     /// (bit 0 = VBlank, bit 1 = STAT), or 0.
+    #[allow(unused_variables)]
     pub fn tick(&mut self, cycles: u32) -> u8 {
-        if self.lcdc & 0x80 == 0 {
-            return 0;
-        }
-        let mut irq = 0;
-        for _ in 0..cycles {
-            self.dot += 1;
-            match self.mode {
-                2 => {
-                    if self.dot >= 80 {
-                        self.mode = 3;
-                        let ly = self.ly as usize;
-                        if ly < SCREEN_HEIGHT {
-                            self.render_scanline();
-                        }
-                    }
-                }
-                3 => {
-                    if self.dot >= 252 {
-                        self.mode = 0;
-                    }
-                }
-                0 => {
-                    if self.dot >= 456 {
-                        self.dot = 0;
-                        self.ly += 1;
-                        if self.ly >= 144 {
-                            self.mode = 1;
-                            irq |= 0x01;
-                            if self.lcdc & 0x10 != 0 {
-                                irq |= 0x10; // mode-1 STAT visible in STAT reg
-                            }
-                        } else {
-                            self.mode = 2;
-                        }
-                    }
-                }
-                _ => {
-                    if self.dot >= 456 {
-                        self.dot = 0;
-                        if self.ly >= 153 {
-                            self.ly = 0;
-                            self.mode = 2;
-                            self.window_line = 0;
-                            self.frame_done = true;
-                        } else {
-                            self.ly += 1;
-                        }
-                    }
-                }
-            }
-            irq |= self.update_stat();
-        }
-        irq
+        todo!("advance the PPU by `cycles` dots: mode 2/3/0/1 state machine, LY/LYC, STAT and VBlank interrupts (R-CORE-4)")
     }
 
     fn update_stat(&mut self) -> u8 {
@@ -297,190 +246,22 @@ impl Ppu {
     }
 
     fn render_scanline(&mut self) {
-        let ly = self.ly as usize;
-        let bg_enable = self.lcdc & 0x01 != 0 || self.is_cgb();
-        let win_enable = self.lcdc & 0x20 != 0 && bg_enable;
-        let wy = self.wy as i32;
-        let wx = self.wx as i32;
-        let win_active = win_enable && ly >= wy as usize && wx <= 166;
-        let win_x_start = (wx - 7).max(0) as usize;
-
-        let mut bg_color = [0u8; SCREEN_WIDTH];
-        for (x, bg) in bg_color.iter_mut().enumerate() {
-            let (color_id, _prio) = if win_active && x >= win_x_start {
-                self.window_pixel(x, win_x_start)
-            } else if bg_enable {
-                self.bg_pixel(x)
-            } else {
-                (0, false)
-            };
-            let shade = (self.bgp >> (color_id * 2)) & 0x03;
-            self.framebuffer[ly * SCREEN_WIDTH + x] = shade;
-            self.framebuffer_rgb555[ly * SCREEN_WIDTH + x] = dmg_rgb(shade);
-            *bg = color_id;
-        }
-
-        self.render_sprites(ly, &bg_color);
-
-        if win_active && win_x_start < SCREEN_WIDTH {
-            self.window_line = self.window_line.wrapping_add(1);
-        }
+        todo!("draw the current line into the framebuffer(s): background, window, sprites (R-CORE-4, R-CGB-1)")
     }
 
+    #[allow(unused_variables)]
     fn bg_pixel(&self, x: usize) -> (u8, bool) {
-        let map_x = (x as u8).wrapping_add(self.scx);
-        let map_y = self.ly.wrapping_add(self.scy);
-        let tile_x = (map_x / 8) as usize;
-        let tile_y = (map_y / 8) as usize;
-        let map_base = if self.lcdc & 0x08 != 0 {
-            0x9C00
-        } else {
-            0x9800
-        };
-        let map_addr = map_base + tile_y * 32 + tile_x;
-        let (tile_index, attr) = if self.is_cgb() {
-            let index = self.vram[map_addr - 0x8000];
-            let attr = self.vram[0x2000 + (map_addr - 0x8000)];
-            (index, attr)
-        } else {
-            (self.vram[map_addr - 0x8000], 0u8)
-        };
-        let bank = if self.is_cgb() && attr & 0x08 != 0 {
-            1
-        } else {
-            0
-        };
-        let mut row = (map_y % 8) as usize;
-        if self.is_cgb() && attr & 0x40 != 0 {
-            row = 7 - row;
-        }
-        let mut col = (map_x % 8) as usize;
-        if self.is_cgb() && attr & 0x20 != 0 {
-            col = 7 - col;
-        }
-        let addr = self.tile_data_addr(tile_index) - 0x8000 + bank * 0x2000 + row * 2;
-        let lo = self.vram[addr];
-        let hi = self.vram[addr + 1];
-        let bit = 7 - col;
-        let color_id = (((hi >> bit) & 1) << 1) | ((lo >> bit) & 1);
-        let prio = attr & 0x80 != 0;
-        (color_id, prio)
+        todo!("background colour/priority for pixel x on the current line")
     }
 
+    #[allow(unused_variables)]
     fn window_pixel(&self, x: usize, win_x_start: usize) -> (u8, bool) {
-        let map_x = (x - win_x_start) as u16;
-        let map_y = self.window_line as u16;
-        let tile_x = (map_x / 8) as usize;
-        let tile_y = (map_y / 8) as usize;
-        let map_base = if self.lcdc & 0x40 != 0 {
-            0x9C00
-        } else {
-            0x9800
-        };
-        let map_addr = map_base + tile_y * 32 + tile_x;
-        let (tile_index, attr) = if self.is_cgb() {
-            let index = self.vram[map_addr - 0x8000];
-            let attr = self.vram[0x2000 + (map_addr - 0x8000)];
-            (index, attr)
-        } else {
-            (self.vram[map_addr - 0x8000], 0u8)
-        };
-        let bank = if self.is_cgb() && attr & 0x08 != 0 {
-            1
-        } else {
-            0
-        };
-        let mut row = (map_y % 8) as usize;
-        if self.is_cgb() && attr & 0x40 != 0 {
-            row = 7 - row;
-        }
-        let mut col = (map_x % 8) as usize;
-        if self.is_cgb() && attr & 0x20 != 0 {
-            col = 7 - col;
-        }
-        let addr = self.tile_data_addr(tile_index) - 0x8000 + bank * 0x2000 + row * 2;
-        let lo = self.vram[addr];
-        let hi = self.vram[addr + 1];
-        let bit = 7 - col;
-        let color_id = (((hi >> bit) & 1) << 1) | ((lo >> bit) & 1);
-        (color_id, attr & 0x80 != 0)
+        todo!("window colour/priority for pixel x on the current line")
     }
 
+    #[allow(unused_variables)]
     fn render_sprites(&mut self, ly: usize, bg_color: &[u8; SCREEN_WIDTH]) {
-        let height = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
-        let mut selected: Vec<(usize, i32)> = Vec::new();
-        for i in 0..40 {
-            let y = self.oam[i * 4] as i32 - 16;
-            if (ly as i32) >= y && (ly as i32) < y + height {
-                let x = self.oam[i * 4 + 1] as i32 - 8;
-                selected.push((i, x));
-                if selected.len() == 10 {
-                    break;
-                }
-            }
-        }
-        // Priority order.
-        if !self.is_cgb() || self.opri & 1 != 0 {
-            selected.sort_by_key(|&(i, x)| (x, i));
-        }
-
-        for &(i, sx) in selected.iter().rev() {
-            let attr = self.oam[i * 4 + 3];
-            let mut tile = self.oam[i * 4 + 2];
-            let y = self.oam[i * 4] as i32 - 16;
-            let mut row = ly as i32 - y;
-            if attr & 0x40 != 0 {
-                row = (height - 1) - row;
-            }
-            if height == 16 {
-                tile &= 0xFE;
-                if row >= 8 {
-                    tile |= 1;
-                    row -= 8;
-                }
-            }
-            let bank = if self.is_cgb() && attr & 0x08 != 0 {
-                1
-            } else {
-                0
-            };
-            let addr = (tile as usize) * 16 + bank * 0x2000 + row as usize * 2;
-            let lo = self.vram[addr];
-            let hi = self.vram[addr + 1];
-            let dmg_pal = if attr & 0x10 != 0 {
-                self.obp1
-            } else {
-                self.obp0
-            };
-            let behind = attr & 0x80 != 0;
-            for px in 0..8i32 {
-                let x = sx + px;
-                if !(0..SCREEN_WIDTH as i32).contains(&x) {
-                    continue;
-                }
-                let col = if attr & 0x20 != 0 { 7 - px } else { px };
-                let bit = 7 - col as usize;
-                let color_id = (((hi >> bit) & 1) << 1) | ((lo >> bit) & 1);
-                if color_id == 0 {
-                    continue;
-                }
-                let x = x as usize;
-                if behind && bg_color[x] != 0 {
-                    continue;
-                }
-                let shade = if self.is_cgb() {
-                    let pal = attr & 0x07;
-                    let rgb = cgb_color(&self.obj_palette, pal, color_id);
-                    self.framebuffer[ly * SCREEN_WIDTH + x] = color_id;
-                    self.framebuffer_rgb555[ly * SCREEN_WIDTH + x] = rgb;
-                    continue;
-                } else {
-                    (dmg_pal >> (color_id * 2)) & 0x03
-                };
-                self.framebuffer[ly * SCREEN_WIDTH + x] = shade;
-                self.framebuffer_rgb555[ly * SCREEN_WIDTH + x] = dmg_rgb(shade);
-            }
-        }
+        todo!("draw up to 10 sprites on line `ly` with DMG/CGB priority rules")
     }
 
     /// The last completed frame as shades 0..=3 (DMG mode).
@@ -500,80 +281,16 @@ impl Ppu {
     }
 
     /// Append PPU state to a save-state buffer.
+    #[allow(unused_variables)]
+    #[allow(clippy::ptr_arg)]
     pub fn save_state(&self, out: &mut Vec<u8>) {
-        out.extend_from_slice(&[
-            self.lcdc,
-            self.stat,
-            self.scy,
-            self.scx,
-            self.ly,
-            self.lyc,
-            self.bgp,
-            self.obp0,
-            self.obp1,
-            self.wy,
-            self.wx,
-            self.mode,
-            self.window_line,
-        ]);
-        out.extend_from_slice(&self.dot.to_le_bytes());
-        out.push(self.stat_line as u8);
-        out.push(self.vbk);
-        out.push(self.bcps);
-        out.push(self.ocps);
-        out.push(self.opri);
-        out.extend_from_slice(&self.bg_palette);
-        out.extend_from_slice(&self.obj_palette);
-        out.extend_from_slice(&(self.vram.len() as u32).to_le_bytes());
-        out.extend_from_slice(&self.vram);
-        out.extend_from_slice(&self.oam);
+        todo!("append the PPU's state to `out` (Emulator::save_state, R-CORE-6)")
     }
 
     /// Restore from a save-state buffer.
+    #[allow(unused_variables)]
     pub fn load_state(&mut self, state: &[u8], cursor: &mut usize) -> Result<(), StateError> {
-        let get = |n: usize, cursor: &mut usize| -> Result<&[u8], StateError> {
-            let s = state
-                .get(*cursor..*cursor + n)
-                .ok_or(StateError::Truncated)?;
-            *cursor += n;
-            Ok(s)
-        };
-        let b = get(13, cursor)?;
-        self.lcdc = b[0];
-        self.stat = b[1];
-        self.scy = b[2];
-        self.scx = b[3];
-        self.ly = b[4];
-        self.lyc = b[5];
-        self.bgp = b[6];
-        self.obp0 = b[7];
-        self.obp1 = b[8];
-        self.wy = b[9];
-        self.wx = b[10];
-        self.mode = b[11];
-        self.window_line = b[12];
-        let b = get(2, cursor)?;
-        self.dot = u16::from_le_bytes([b[0], b[1]]);
-        let b = get(5, cursor)?;
-        self.stat_line = b[0] != 0;
-        self.vbk = b[1];
-        self.bcps = b[2];
-        self.ocps = b[3];
-        self.opri = b[4];
-        let b = get(64, cursor)?;
-        self.bg_palette.copy_from_slice(b);
-        let b = get(64, cursor)?;
-        self.obj_palette.copy_from_slice(b);
-        let b = get(4, cursor)?;
-        let vlen = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
-        if vlen != self.vram.len() {
-            return Err(StateError::Corrupt("VRAM size mismatch"));
-        }
-        let b = get(vlen, cursor)?;
-        self.vram.copy_from_slice(b);
-        let b = get(0xA0, cursor)?;
-        self.oam.copy_from_slice(b);
-        Ok(())
+        todo!("restore the PPU's state written by save_state (R-CORE-6)")
     }
 }
 

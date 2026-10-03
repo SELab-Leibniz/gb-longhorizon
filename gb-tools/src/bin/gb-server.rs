@@ -11,6 +11,11 @@
 //! malformed request without exiting, so request parsing and dispatch are
 //! wrapped in `catch_unwind`.
 
+// Some functions in this crate are stubs (`todo!()`, see their doc comments); the
+// helpers they used are still here, so they show up as unused until the stubs are
+// implemented again. Remove this allow when they are.
+#![allow(dead_code, unused_imports)]
+
 use std::collections::{BTreeSet, HashMap};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -560,39 +565,7 @@ impl Server {
 
     /// Execute one instruction, updating the frame/profile counters.
     fn core_step(&mut self) -> CoreStep {
-        let Some(emu) = self.emu.as_mut() else {
-            return CoreStep {
-                pc: 0,
-                visible: false,
-                accesses: Vec::new(),
-            };
-        };
-        let visible = line_pending(emu);
-        let pc = emu.registers().pc;
-        let cycles = match emu.step_instruction() {
-            StepResult::Ran(cycles) => cycles,
-            StepResult::Breakpoint => 4,
-        };
-        let accesses = emu.take_accesses();
-
-        self.accum += cycles;
-        // Match `Emulator::step_frame`: each frame is "run until at least
-        // CYCLES_PER_FRAME have elapsed", and any overshoot is discarded
-        // rather than carried into the next frame. One instruction is far
-        // shorter than a frame, so at most one boundary is crossed here.
-        if self.accum >= CYCLES_PER_FRAME {
-            self.accum = 0;
-            self.frames += 1;
-        }
-        if visible {
-            *self.profile.entry(pc).or_insert(0) += 1;
-            self.visible_count += 1;
-        }
-        CoreStep {
-            pc,
-            visible,
-            accesses,
-        }
+        todo!("execute one instruction for /run and /step, recording breakpoint and watchpoint hits (Appendix B semantics)")
     }
 
     fn clear_counters(&mut self) {
@@ -871,36 +844,9 @@ impl Server {
         self.registers_response()
     }
 
+    #[allow(unused_variables)]
     fn handle_run(&mut self, request: &Request) -> Response {
-        let body = match body_json(request) {
-            Ok(body) => body,
-            Err(message) => return Response::error(400, &message),
-        };
-        let frames = match body.get("frames").and_then(Json::as_int) {
-            Some(n) if n >= 0 => n as u64,
-            _ => return Response::error(400, "missing or invalid `frames`"),
-        };
-
-        let start = self.frames;
-        loop {
-            if self.frames - start >= frames {
-                return self.run_response("frames", self.current_pc(), None);
-            }
-            let (pc, visible) = match self.emu.as_ref() {
-                Some(emu) => (emu.registers().pc, line_pending(emu)),
-                None => return Response::error(409, "no ROM loaded"),
-            };
-            let resume = self.pending_skip == Some(pc);
-            if visible && !resume && self.breakpoints.contains(&pc) {
-                self.pending_skip = Some(pc);
-                return self.run_response("breakpoint", pc, None);
-            }
-            self.pending_skip = None;
-            let step = self.core_step();
-            if let Some(watch) = self.match_watch(&step.accesses) {
-                return self.run_response("watchpoint", step.pc, Some(watch));
-            }
-        }
+        todo!("POST /run: run up to n frames, stopping at breakpoints (before) and watchpoints (after) — Appendix B")
     }
 
     fn handle_add_breakpoint(&mut self, request: &Request) -> Response {

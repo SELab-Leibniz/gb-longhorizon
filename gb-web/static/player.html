@@ -129,58 +129,29 @@
   // ---------------------------------------------------------------- drawing
 
   function drawFrame() {
-    if (!exports) return;
-    var len = exports.gb_frame_len();
-    var ptr = exports.gb_frame_ptr() >>> 0;
-    var src = new Uint8Array(exports.memory.buffer, ptr, len); // re-read after run
-    var out = imageData.data;
-    var i, o, v, r5, g5, b5, s, col;
 
-    if (len >= PIXELS * 2) {
-      // CGB: 160*144 RGB555 little-endian pairs.
-      for (i = 0, o = 0; i < len; i += 2, o += 4) {
-        v = src[i] | (src[i + 1] << 8);
-        r5 = v & 31;
-        g5 = (v >> 5) & 31;
-        b5 = (v >> 10) & 31;
-        out[o] = (r5 << 3) | (r5 >> 2);
-        out[o + 1] = (g5 << 3) | (g5 >> 2);
-        out[o + 2] = (b5 << 3) | (b5 >> 2);
-        out[o + 3] = 255;
-      }
-    } else {
-      // DMG: one shade byte per pixel.
-      for (i = 0, o = 0; i < PIXELS; i++, o += 4) {
-        s = src[i] & 3;
-        col = DMG_PALETTE[s];
-        out[o] = col[0];
-        out[o + 1] = col[1];
-        out[o + 2] = col[2];
-        out[o + 3] = 255;
-      }
-    }
-    ctx.putImageData(imageData, 0, 0);
+    // TODO: draw the current frame on the canvas: DMG shades through the palette, CGB RGB555 expanded exactly as (c << 3) | (c >> 2) (GEP 1 Appendix E.2)
+
+    throw new Error("not implemented: drawFrame");
+
   }
 
   function frameHash() {
-    if (!exports) return "0000000000000000";
-    var len = exports.gb_frame_len();
-    var ptr = exports.gb_frame_ptr() >>> 0;
-    var buf = new Uint8Array(exports.memory.buffer, ptr, len);
-    var h = FNV_OFFSET;
-    for (var i = 0; i < len; i++) {
-      h = ((h ^ BigInt(buf[i])) * FNV_PRIME) & U64;
-    }
-    return h.toString(16).padStart(16, "0");
+
+    // TODO: FNV-1a-64 of the current frame bytes as 16 lower-case hex digits, equal to `gb --hash` (Appendix E.3)
+
+    throw new Error("not implemented: frameHash");
+
   }
 
   // ------------------------------------------------------------ emulation
 
   function runFrames(n) {
-    if (!exports || !(n > 0)) return totalFrames;
-    exports.gb_run_frames(n);
-    totalFrames += n;
-    return totalFrames;
+
+    // TODO: run n frames in the module and keep totalFrames in step (Appendix C, E.3)
+
+    throw new Error("not implemented: runFrames");
+
   }
 
   function loadRom() {
@@ -242,32 +213,11 @@
   }
 
   function loop(now) {
-    if (!loopActive) return;
-    rafId = requestAnimationFrame(loop);
 
-    var dt = now - lastTime;
-    lastTime = now;
-    if (dt < 0) dt = 0;
-    if (dt > 250) dt = 250; // never run more than ~a quarter second in one go
+    // TODO: requestAnimationFrame loop: run frames at 59.73 Hz whatever the display rate, draw, update #fps (R-UI-2)
 
-    accumulator += dt;
-    var n = 0;
-    while (accumulator >= FRAME_MS && n < 20) {
-      accumulator -= FRAME_MS;
-      n++;
-    }
-    if (n > 0) {
-      runFrames(n);
-      drawFrame();
-      fpsFrames += n;
-    }
+    throw new Error("not implemented: loop");
 
-    var elapsed = now - fpsWindowStart;
-    if (elapsed >= 1000) {
-      fpsEl.textContent = (fpsFrames * 1000 / elapsed).toFixed(1);
-      fpsFrames = 0;
-      fpsWindowStart = now;
-    }
   }
 
   // ---------------------------------------------------------------- controls
@@ -289,12 +239,11 @@
   }
 
   function step(n) {
-    if (!exports) return totalFrames;
-    n = Math.floor(Number(n));
-    if (!isFinite(n) || n <= 0) return totalFrames;
-    runFrames(n);
-    drawFrame();
-    return totalFrames;
+
+    // TODO: gbTest.step(n): while paused, run exactly n frames with the held buttons, draw the last one, return the total (Appendix E.3)
+
+    throw new Error("not implemented: step");
+
   }
 
   document.addEventListener("keydown", function (ev) {
