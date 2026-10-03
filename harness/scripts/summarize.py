@@ -169,8 +169,24 @@ def agent_activity(traj: Path, agent: str):
                     out["sub_agents"] += 1
             elif '"context.compression_state"' in line and '"status": "completed"' in line:
                 out["compactions"] += 1
-            if "gb-oracle" in line and ('"tool.operation.started"' in line or '"chat.tool_call"' in line):
+            elif '"chat.tool_call"' in line and "gb-oracle" in line:
                 out["oracle_calls"] += 1
+    if agent == "icode":
+        # iCode's event log carries argument fingerprints only; the calls themselves are in the
+        # recovered conversation of the main session and of each sub-agent
+        def calls(o, acc):
+            if isinstance(o, dict):
+                if "name" in o and ("arguments" in o or "input" in o):
+                    acc.append(json.dumps(o.get("arguments", o.get("input"))))
+                for v in o.values():
+                    calls(v, acc)
+            elif isinstance(o, list):
+                for v in o:
+                    calls(v, acc)
+        for f in list(traj.glob("chrys/sessions/*/session.recovery.json")) + list(traj.glob("chrys/sessions/*/sub_agents/sessions/*.json")):
+            acc = []
+            calls(load(f, {}), acc)
+            out["oracle_calls"] += sum("gb-oracle" in a for a in acc)
     return out
 
 
