@@ -179,7 +179,7 @@ def native(gb, rom, frames, model, script=None, dump=None):
         args += ["--input-script", str(script)]
     if dump:
         args += ["--dump-frame", str(dump)]
-    p = subprocess.run(args, capture_output=True, text=True, timeout=300)
+    p = subprocess.run(args, capture_output=True, text=True, errors="replace", timeout=300)
     m = re.search(r"final ([0-9a-f]{16})", p.stdout)
     return m.group(1) if m else None
 

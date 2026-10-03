@@ -15,7 +15,7 @@ bounded by `run_seconds` so it ends before Harbor's agent timeout.
 Agent kwargs (--ak key=value):
   run_seconds     wall-clock budget for the adapter loop (default 172500 ≈ 47h55m)
   chaos_after_sec kill the in-flight agent process once, this many seconds in
-                  (default 72000 = hour 20; 0 disables)
+                  (default 0 = never; the smoke jobs use 480 to test resumption)
   model           model id passed to the agent (default from -m)
 """
 from __future__ import annotations

@@ -1,5 +1,13 @@
 # gb — a Game Boy emulator in Rust
 
+<!-- operator-notes:start -->
+> **This repository is a coding-agent benchmark.** The README below is the
+> one the agent under test reads (this note is removed from its copy). To
+> run the benchmark, start with **[`harness/RUNNING.md`](harness/RUNNING.md)**;
+> the protocol is [`harness/BENCHMARK.md`](harness/BENCHMARK.md) and the
+> task is [`GEP-0001.md`](GEP-0001.md) + [`harness/AGENT_BRIEF.md`](harness/AGENT_BRIEF.md).
+<!-- operator-notes:end -->
+
 This repository is a partially built Game Boy emulator. The structure,
 public interfaces, command-line tool and acceptance tests are in place; the
 hardware behaviour is not. Your job is to build the whole platform specified

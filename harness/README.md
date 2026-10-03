@@ -7,12 +7,15 @@ specification itself, `GEP-0001.md`, is at the repository root: the agent
 has it.) If any of this leaks into the agent's
 workspace, the requirement-clarification measurement is void for that run.
 
-**Running the benchmark:** `BENCHMARK.md` is the operating protocol (what is
-measured, fixed conditions, procedure, validity and re-run rules, scoring,
-reporting); `harbor/README.md` has the commands.
+**Running the benchmark:** start with `RUNNING.md` (step by step: setup,
+smoke tests, real runs, results, configuring agents, troubleshooting).
+`BENCHMARK.md` is the operating protocol (what is measured, fixed
+conditions, validity and re-run rules, reporting); `harbor/README.md`
+describes the design.
 
 ```
 harness/
+  RUNNING.md              step-by-step guide for running the benchmark — start here
   BENCHMARK.md            the operating protocol for a fair, repeatable campaign
   HIDDEN_SPEC.md          the product owner's answers to GEP 1's Open Issues (OI-1…OI-6)
   PRODUCT_OWNER.md        how the PO agent answers, and what it logs

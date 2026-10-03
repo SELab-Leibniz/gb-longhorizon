@@ -9,6 +9,22 @@ T="$H/harbor/task"
 # pristine assets (built once by scripts/build_assets.sh)
 [ -d "$H/.assets/roms" ] || "$H/scripts/build_assets.sh"
 
+# every graded game ROM must have goldens and every golden its ROM — a mismatch
+# would silently score a game 0 (or skip it) for every agent
+python3 - "$H" <<'PYCHECK'
+import sys
+from pathlib import Path
+H = Path(sys.argv[1])
+bad = []
+for roms, golden, ext in (("games", "golden", "*.gb"), ("games-cgb", "golden-cgb", "*.gbc")):
+    have = {p.stem for p in (H / ".assets/roms" / roms).glob(ext)}
+    gold = {p.name[: -len(".robust.json")] for p in (H / golden).glob("*.robust.json")}
+    if have != gold:
+        bad.append(f"{roms}: ROMs without goldens {sorted(have - gold)}, goldens without ROMs {sorted(gold - have)}")
+if bad:
+    sys.exit("sync.sh: " + "; ".join(bad) + " — rebuild harness/.assets (scripts/build_assets.sh)")
+PYCHECK
+
 # verifier
 mkdir -p "$T/tests/golden" "$T/tests/frozen/gb-core/tests" "$T/tests/frozen/gb-cli/src"
 cp "$H/scripts/grade.py" "$H/scripts/screenshots.py" "$H/scripts/trace_blocks.py" \

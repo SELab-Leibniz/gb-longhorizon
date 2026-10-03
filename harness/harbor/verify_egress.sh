@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Run INSIDE a sandbox container started on the gb-sandbox network with
-# HTTPS_PROXY set, e.g.:
-#   docker run --rm --network gb-sandbox -e HTTPS_PROXY=http://gb-egress:8888 -e HTTP_PROXY=http://gb-egress:8888 \
-#       -v $PWD/harness/sandbox/verify_egress.sh:/v.sh gb-longhorizon-sandbox bash /v.sh
+# Run INSIDE the main container of a live trial, with the proxy variables the
+# agents get (see RUNNING.md §5):
+#   docker cp harness/harbor/verify_egress.sh task__<id>__env-main-1:/tmp/v.sh
+#   docker exec -e HTTPS_PROXY=http://egress:8888 -e HTTP_PROXY=http://egress:8888 \
+#       task__<id>__env-main-1 bash /tmp/v.sh
 # Exit 0 only if: the API host is reachable through the proxy, nothing else
 # is, and nothing is reachable without the proxy.
 set -u

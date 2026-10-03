@@ -69,83 +69,18 @@ harness/harbor/
   verify_egress.sh            run inside main to prove the allowlist holds
 ```
 
-## Setup (once, on the machine that runs the study)
+## Running it
 
-Docker needs the **compose** and **buildx** plugins (Harbor drives
-`docker compose`). On macOS with Colima + Homebrew:
-
-```sh
-brew install docker-compose docker-buildx
-# let the docker CLI find Homebrew's plugins
-python3 - <<'EOF'
-import json, os; p = os.path.expanduser("~/.docker/config.json")
-c = json.load(open(p)) if os.path.exists(p) else {}
-d = c.setdefault("cliPluginsExtraDirs", [])
-"/opt/homebrew/lib/docker/cli-plugins" in d or d.append("/opt/homebrew/lib/docker/cli-plugins")
-json.dump(c, open(p, "w"), indent=2)
-EOF
-colima start --cpu 6 --memory 20 --disk 100   # task wants 4 CPU / 16 GB
-docker compose version && docker buildx version
-```
-
-Keys live in `~/.gb-keys.env` (`chmod 600`), never in the repo:
-
-```sh
-export DEEPSEEK_API_KEY=sk-...     # the agent under test
-export GB_PO_API_KEY=sk-...        # the product-owner sidecar (can be the same key)
-```
-
-The model ID is whatever your DeepSeek account lists
-(`curl -H "Authorization: Bearer $DEEPSEEK_API_KEY" https://api.deepseek.com/models`);
-the jobs use `deepseek/deepseek-flash`.
-
-```sh
-uv tool install harbor                     # or use your fork: uv tool install /path/to/harbor
-export DEEPSEEK_API_KEY=...                # the agents' key (goes into the agent container)
-export GB_PO_API_KEY=...                   # the product owner's key (po sidecar only; can be the same key)
-export PYTHONPATH=$PWD/harness/harbor/agents   # so --agent-import-path gb_agents:... resolves
-harness/harbor/sync.sh                     # stage spec, goldens, grader, instruction into the task dir
-```
+Step-by-step instructions — requirements, setup, keys, smoke tests, the real
+runs, monitoring, results, configuring and adding agents, troubleshooting —
+are in [`../RUNNING.md`](../RUNNING.md). The rest of this file describes the
+design.
 
 The scaffold baked into the image is exactly the committed `HEAD`
-(`sync.sh` writes `git archive HEAD` to `environment/scaffold.tar`), so
-commit before syncing. The agents are pinned in
-`task/environment/Dockerfile` (`ICODE_COMMIT`, `JW_COMMIT`; note
-jiuwenswarm's default branch is `develop` — its `main` is an older project).
-
-## Smoke test first (≈ 20 min + image build)
-
-```sh
-harbor run -c harness/harbor/jobs/smoke.yaml -y
-```
-
-Checks, in `jobs/gb-smoke/<trial>/`:
-- `agent/icode.txt` and `agent/trajectory/icode_adapter.jsonl` — invocations with `rc: 0`, a `chaos.kill` line at ~8 min and a resume after it
-- `artifacts/po-artifacts/events.jsonl` — `po.answered` lines if the agent asked anything (one per Open Issue question is the ideal); `snapshot` lines
-- `artifacts/var/log/tinyproxy/tinyproxy.log` — only `api.deepseek.com` CONNECTs succeed; anything else shows as filtered
-- `verifier/reward.json` — all metrics present (mostly 0 after 20 minutes, that's fine), `verifier/grade-summary.txt`
-- `verifier/screenshots/index.html` — open it in a browser: every game and acid2 booted on the agent's emulator, agent vs SameBoy side by side, with a loaded / panic / blank status per ROM
-- `result.json` — no `exception_info`
-
-To prove the network boundary independently, run inside the main container
-of a live trial: `docker exec <main> bash /tests/../verify_egress.sh` (or
-copy `harness/harbor/verify_egress.sh` in).
-
-## The real runs
-
-```sh
-harbor run -c harness/harbor/jobs/icode.yaml -y
-harbor run -c harness/harbor/jobs/jiuwenswarm.yaml -y
-```
-
-Each takes ~49 h (48 h agent + build + verify). Run them concurrently on
-separate hosts, or set `n_concurrent_trials: 2` on one big host.
-Afterwards:
-
-```sh
-harness/scripts/grade_snapshots.sh jobs/gb-icode/<trial>        # tier-pass curve over time
-harbor view jobs/gb-icode                                        # browse the agent log
-```
+(`sync.sh` writes `git archive HEAD` to `environment/scaffold.tar`). The
+agents are pinned in `task/environment/Dockerfile` (`ICODE_COMMIT`,
+`JW_COMMIT`; jiuwenswarm's default branch is `develop` — its `main` is an
+older project).
 
 ## What a trial directory contains
 
@@ -157,10 +92,13 @@ jobs/<job>/<task>__<id>/
     trajectory/                     GB_TRAJECTORY_DIR: adapter log, all agent sessions/traces
   verifier/
     reward.json results.json grade-summary.txt git-log.txt SUBMISSION.md QUESTIONS.md
+    repo.bundle                     the full repository as graded (re-grade / review)
+    environment.json                graded commit, toolchain, Chromium, agent versions
+    working-tree.json               does the uncommitted state build, how many uncommitted files
     screenshots/index.html, summary.json, <rom>/agent_*.png, <rom>/compare_*.png
   artifacts/
     po-artifacts/events.jsonl       PO answers, snapshots
-    po-artifacts/po_log.jsonl       every Q/A with hidden-spec items + before-first-commit flag
+    po-artifacts/po_log.jsonl       every Q/A with the Open Issue ids + before-first-commit flag
     po-artifacts/snapshots/*.bundle 2-hourly repo state
     var/log/tinyproxy/tinyproxy.log every egress attempt
 ```

@@ -82,7 +82,7 @@ def main():
             script = Path(td) / f"{c['name']}.input"
             script.write_text("".join(f"{at} {','.join(bs)}\n" for at, bs in c["schedule"]))
             p = subprocess.run([a.gb, "--rom", str(c["rom"]), "--frames", str(c["frames"]), "--model", c["model"],
-                                "--hash", "--input-script", str(script)], capture_output=True, text=True, timeout=600)
+                                "--hash", "--input-script", str(script)], capture_output=True, text=True, errors="replace", timeout=600)
             m = re.search(r"final ([0-9a-f]{16})", p.stdout)
             native[c["name"]] = m.group(1) if m else None
         js = Path(td) / "check.js"
@@ -91,7 +91,7 @@ def main():
         cj.write_text(json.dumps([{"name": c["name"], "rom": str(c["rom"]), "model": c["model"], "frames": c["frames"],
                                    "schedule": [[at, sum(MASK[b] for b in bs)] for at, bs in c["schedule"]]}
                                   for c in cases]))
-        p = subprocess.run(["node", str(js), a.wasm, str(cj)], capture_output=True, text=True, timeout=1800)
+        p = subprocess.run(["node", str(js), a.wasm, str(cj)], capture_output=True, text=True, errors="replace", timeout=1800)
     try:
         res = json.loads(p.stdout.strip().splitlines()[-1])
     except Exception:

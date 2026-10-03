@@ -71,8 +71,11 @@ s = re.sub(r"A small window front-end \(`gb-gui`\)\s+exists\s+for\s+demos\.",
            "(A demo window front-end exists outside this headless environment.)", s)
 s = re.sub(r"^gb-gui/ .*\n", "", s, flags=re.M)
 s = re.sub(r"^cargo run -p gb-gui .*\n", "", s, flags=re.M)
+# the note for people running the benchmark is not for the agent
+s = re.sub(r"\n?<!-- operator-notes:start -->.*?<!-- operator-notes:end -->\n", "", s, flags=re.S)
 p.write_text(s)
 assert "gb-gui" not in s, "README still mentions gb-gui"
+assert "operator-notes" not in s and "harness/" not in s, "README still has the operator note"
 PYEOF
 RUN sed -i '/gb-gui/d' Cargo.toml \
     && grep -q 'members = \["gb-core", "gb-cli"\]' Cargo.toml \

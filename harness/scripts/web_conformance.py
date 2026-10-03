@@ -224,7 +224,7 @@ def frame_from_png(data, cgb):
 
 def native_hash(gb, rom_path, frames, model):
     p = subprocess.run([gb, "--rom", str(rom_path), "--frames", str(frames), "--model", model, "--hash"],
-                       capture_output=True, text=True, timeout=300)
+                       capture_output=True, text=True, errors="replace", timeout=300)
     m = re.search(r"final ([0-9a-f]{16})", p.stdout)
     return m.group(1) if m else None
 

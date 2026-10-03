@@ -379,7 +379,7 @@ def main():
         st, body = s.call("POST", "/load", {"path": str(acid)})
         st, run = s.call("POST", "/run", {"frames": 120})
         st, shot = s.call("GET", "/screenshot")
-        cli = subprocess.run([a.gb, "--rom", str(acid), "--frames", "120", "--hash"], capture_output=True, text=True, timeout=300)
+        cli = subprocess.run([a.gb, "--rom", str(acid), "--frames", "120", "--hash"], capture_output=True, text=True, errors="replace", timeout=300)
         m = re.search(r"final ([0-9a-f]{16})", cli.stdout)
         check("screenshot_matches_cli", isinstance(shot, dict) and m and shot.get("hash") == m.group(1)
               and shot.get("format") == "dmg-shades" and shot.get("frames") == 120, {"api": shot, "cli": m and m.group(1)})
