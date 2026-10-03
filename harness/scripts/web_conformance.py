@@ -258,8 +258,12 @@ def main():
     check("server_starts", lambda: (True, ""))
     try:
         run_checks(s, a, seeds, lib, td, stats, counted)
+    except Exception as e:      # a crash mid-suite must not discard the checks already run
+        CHECKS.setdefault("suite_aborted", {"ok": False, "detail": f"{type(e).__name__}: {e}"[:400]})
     finally:
         s.stop()
+    if "before_restart" not in STATE:
+        return finish()
     # ---- persistence: restart on the same library (seed dir passed again: OI-6)
     try:
         s2 = Server(a.server, lib, [seed_dir], a.wasm)
@@ -676,7 +680,10 @@ def run_checks(s, a, seeds, lib, td, stats, counted):
     check("default_order_mixed_case", default_order_mixed_case)
 
     # remember state for the restart checks; delete one seeded game (OI-6)
-    victim = next(g for g in STATE["seed_list"] if g["filename"] != "tobudx.gb" and g["id"] != STATE.get("save_game"))
+    victim = next((g for g in STATE["seed_list"] if g["filename"] != "tobudx.gb"
+                   and g["id"] != STATE.get("save_game")), None)
+    if victim is None:
+        return                  # nothing listed: the restart checks stay "not reached"
     s.req("DELETE", f"/api/games/{victim['id']}")
     STATE["deleted_seed"] = victim["id"]
     STATE["before_restart"] = {g["id"]: g for g in s.json("GET", "/api/games")[2]["games"]}
