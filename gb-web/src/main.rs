@@ -439,7 +439,7 @@ fn api_save(app: &App, id: &str, request: Request) -> Response {
             if !game.battery {
                 return bad_request("this cartridge has no battery save");
             }
-            if request.body_truncated || request.body.len() != game.ram_size {
+            if request.body_truncated || request.body.len() < game.ram_size {
                 return bad_request("save body must be exactly `ram_size` bytes");
             }
             match app.store.put_save(id, &request.body) {

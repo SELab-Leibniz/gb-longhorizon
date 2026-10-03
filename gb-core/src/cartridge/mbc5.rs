@@ -65,7 +65,7 @@ impl Mbc for Mbc5 {
             0x0000..=0x1FFF => self.ram_enable = value & 0x0F == 0x0A,
             0x2000..=0x2FFF => self.rom_bank = (self.rom_bank & 0x100) | value as u16,
             0x3000..=0x3FFF => {
-                self.rom_bank = (self.rom_bank & 0x0FF) | (((value & 0x01) as u16) << 8)
+                self.rom_bank = (self.rom_bank & 0x0FF) | (((value & 0x01) as u16) << 7)
             }
             0x4000..=0x5FFF => self.ram_bank = value & 0x0F,
             0xA000..=0xBFFF if self.ram_enable && !ram.is_empty() => {

@@ -40,7 +40,7 @@ impl Model {
     /// (0x80 = works on both, 0xC0 = CGB only), otherwise DMG.
     pub fn for_rom(rom: &[u8]) -> Model {
         match rom.get(0x143) {
-            Some(flag) if flag & 0x80 != 0 => Model::Cgb,
+            Some(flag) if *flag == 0xC0 => Model::Cgb,
             _ => Model::Dmg,
         }
     }

@@ -52,8 +52,12 @@ impl Mbc1 {
     /// applied here, before masking to the ROM size).
     fn rom_bank(&self) -> usize {
         let lo = (self.bank_lo & 0x1F) as usize;
-        let lo = if lo == 0 { 1 } else { lo };
-        ((self.bank_hi as usize) << 5) | lo
+        let bank = ((self.bank_hi as usize) << 5) | lo;
+        if bank == 0 {
+            1
+        } else {
+            bank
+        }
     }
 
     fn rom_offset(&self, bank: usize, addr: u16) -> usize {

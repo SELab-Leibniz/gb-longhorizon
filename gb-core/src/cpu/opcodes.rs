@@ -233,7 +233,7 @@ fn add_a(cpu: &mut Cpu, v: u8, carry: bool) {
     let a = cpu.regs.a;
     let c = carry as u16;
     let sum = a as u16 + v as u16 + c;
-    let h = (a & 0x0F) as u16 + (v & 0x0F) as u16 + c > 0x0F;
+    let h = (a & 0x0F) as u16 + (v & 0x0F) as u16 > 0x0F;
     cpu.regs.a = sum as u8;
     set_flags(cpu, cpu.regs.a == 0, false, h, sum > 0xFF);
 }
@@ -296,7 +296,7 @@ fn daa(cpu: &mut Cpu) {
     if h || (!n && (a & 0x0F) > 0x09) {
         correction |= 0x06;
     }
-    if c || (!n && a > 0x99) {
+    if c || (!n && a >= 0x99) {
         correction |= 0x60;
         carry = true;
     }

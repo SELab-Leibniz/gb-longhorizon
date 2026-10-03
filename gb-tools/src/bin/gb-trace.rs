@@ -177,7 +177,7 @@ fn run() -> Result<(), String> {
 
     if opts.profile {
         let mut entries: Vec<(u16, u64)> = counts.into_iter().collect();
-        entries.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)));
         for (pc, count) in entries.into_iter().take(opts.top) {
             writeln!(out, "PC:{pc:04X} COUNT:{count}").map_err(|e| format!("write error: {e}"))?;
         }

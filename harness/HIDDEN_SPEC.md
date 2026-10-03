@@ -1,33 +1,36 @@
 # Product owner's knowledge
 
-The product owner has `GEP-0001.md` (the agent has it too, at the repository
-root) and the decisions below, which the GEP lists as **Open Issues** and
-leaves to the product owner. The agent learns these only by asking.
+The product owner has `GEP-0001.md` (including its Resolved Issues OI-1 …
+OI-6) and the issue backlog `ISSUES/`; the agent has both too. On top of
+that the product owner has the backlog decisions below, which the agent
+learns only by asking.
 
-Answer questions about anything the GEP specifies by pointing to it ("That's
-in GEP 1, Appendix D.4"), restating it briefly if useful. Do not add
-requirements the GEP does not contain, and do not volunteer an Open Issue
-answer that was not asked about.
+How to answer:
 
-## Clarification score (for the study, not for the agent)
+* Anything GEP 1 specifies: point to it ("That's OI-2 in GEP 1"), restating
+  it briefly if useful.
+* A backlog item listed under **Backlog decisions**: give that decision,
+  exactly, when the agent asks about that item or its topic. Do not volunteer
+  a decision the agent did not ask about.
+* A bug report (an issue not listed below): you are the product side, not an
+  engineer. Confirm what the user should see ("Yes — X is A and Z is B, GEP 1
+  Appendix E"), or for hardware details say that the emulator must behave
+  like real hardware and that the hardware references are in `docs/specs/`.
+  Never guess at causes or point at code.
+* Do not add requirements GEP 1 and this file do not contain.
 
-> clarification score = Open Issues (OI-1 … OI-6) the agent asked about
-> before its first commit to the affected component ÷ 6
+## Backlog decisions
 
-This is reported alongside the results, never added to the score. The
-hidden acceptance tests check OI-1 … OI-6 exactly as answered here, so an
-agent that guesses instead of asking may lose those checks.
-
-## Open Issue answers
-
-| # | Question | Answer |
-|---|---|---|
-| OI-1 | Upload size limit | At most **8 MiB (8 388 608 bytes)**, inclusive — the largest real cartridge. A larger upload gets **`413`** with code **`too_large`** and nothing is stored. |
-| OI-2 | Re-uploading a ROM that is already in the library | Reject it: **`409`** with code **`duplicate`**, and the error body also carries **`"id"`** — the existing game's id. The existing entry is unchanged (its filename and `added` time stay as they were). |
-| OI-3 | Uploads of cartridge types the emulator does not support (MBC2, MMM01, MBC6, MBC7, camera, HuC, TAMA5, unknown) | Reject them: **`422`** with code **`unsupported_cartridge`**; they are not stored. (So every game in the library is `playable`.) |
-| OI-4 | Default order of the game list | **Title ascending, case-insensitive** (ASCII), ties broken by `id` ascending. The library page shows the same order. |
-| OI-5 | Title when the header title is empty or has non-printable bytes | Replace each byte outside `0x20`–`0x7E` with **`?`**. If the title is empty (after cutting at the first `$00` and trimming trailing spaces), use the **file name without its extension** instead. |
-| OI-6 | `--seed` with an existing library | Seed directories are imported **only when the library is created** (the directory did not exist or was empty). Once a library exists, `--seed` is ignored — a game the user deleted never comes back. |
+| Issue | Decision |
+|---|---|
+| #102 statistics per cartridge type | Add a field **`by_mapper`** to the `GET /api/stats` object: a JSON object whose keys are mapper names exactly as in the game objects' `mapper` field (`"ROM"`, `"MBC1"`, `"MBC5"`, …) and whose values are the number of games currently in the library with that mapper. Mappers with no games are left out. All existing fields stay as they are. |
+| #107 search by cartridge type | Yes: **`q` also matches the mapper name** — a game matches when the term is a case-insensitive substring of its title, its file name **or its mapper**. The `mapper` filter parameter stays as it is. Nothing else about `q` changes. |
+| #119 save download name | `GET /api/games/{id}/save` sends **`Content-Disposition: attachment; filename="<file name without its extension>.sav"`** — `tobudx.gb` → `tobudx.sav` — with the file name sanitised as for ROM downloads. The body is unchanged. |
+| #110 rename by uploading again | **No.** OI-2 stands: a re-upload is `409 duplicate` with the `id`, and the existing entry is unchanged. Renaming is not part of 1.0. Close it as won't fix. |
+| #116 newest uploads first | **Don't change the default order** of the API or of the library page (OI-4). If you like, the front end may offer "Newest first" as a sort choice (`sort=added&order=desc`); that is optional. |
+| #121 ROMs over 8 MB | **No.** OI-1 stands: 8 MiB, the largest real cartridge. Close it as won't fix. |
+| #104 Japanese titles | **No.** OI-5 stands: every byte outside `0x20`–`0x7E` becomes `?`. Close it as won't fix. |
+| #113 colour correction | **No.** GEP 1 requires exactly `(c << 3) \| (c >> 2)` per channel in screenshots, the player and frame hashes. No colour correction in 1.0, not even as an option. Close it as won't fix. |
 
 ## Priorities (if asked)
 
@@ -42,7 +45,19 @@ crates or JavaScript libraries.
 
 ## Definition of done (if asked)
 
-Everything in GEP 1 meets the Acceptance table, the Open Issues are
-implemented as answered, and `SUBMISSION.md` is committed describing what
-passes and what is missing by requirement ID. The branch state at the
-two-day mark is what is taken, submitted or not.
+The stubbed functions are implemented, GEP 1 meets its Acceptance table,
+every issue in `ISSUES/` has a `## Resolution`, and `SUBMISSION.md` is
+committed describing what passes and what is missing by requirement ID and
+issue number. The branch state at the end of the run is what is taken,
+submitted or not.
+
+## For the study, not for the agent
+
+Hidden checks P1–P6 test the decisions on #107, #119, #102, #110, #116 and
+#121 exactly as written above (`harness/showcase/tickets_conformance.py`).
+#102, #107 and #119 cannot be guessed reliably; #110, #116 and #121 pass
+unless the agent changes the specified behaviour; #104 and #113 are covered
+by the regular library and front-end checks. Clarification diagnostics
+(which of these eight the agent asked about, and whether it asked before
+committing a change to the affected component) are reported alongside the
+results.

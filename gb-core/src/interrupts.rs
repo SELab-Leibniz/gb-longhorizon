@@ -64,7 +64,7 @@ impl Interrupts {
         if both == 0 {
             return None;
         }
-        Some(match both.trailing_zeros() {
+        Some(match 7 - both.leading_zeros() {
             0 => Interrupt::VBlank,
             1 => Interrupt::Stat,
             2 => Interrupt::Timer,
@@ -82,19 +82,6 @@ impl Interrupts {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn priority_is_lowest_bit() {
-        let mut i = Interrupts {
-            flags: 0,
-            enable: 0x1F,
-        };
-        i.request(Interrupt::Timer);
-        i.request(Interrupt::VBlank);
-        assert_eq!(i.pending(), Some(Interrupt::VBlank));
-        i.acknowledge(Interrupt::VBlank);
-        assert_eq!(i.pending(), Some(Interrupt::Timer));
-    }
 
     #[test]
     fn vectors() {

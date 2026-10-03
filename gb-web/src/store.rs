@@ -140,7 +140,7 @@ pub fn title_of(rom: &[u8], filename: &str) -> String {
         if b == 0 {
             break;
         }
-        title.push(if (0x20..=0x7E).contains(&b) {
+        title.push(if (0x20..=0x7F).contains(&b) {
             b as char
         } else {
             '?'
