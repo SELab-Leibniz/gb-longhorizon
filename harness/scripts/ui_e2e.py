@@ -353,7 +353,8 @@ def run(cdp, srv, base, a, td):
     cdp.goto(f"{base}/play/{g2048['id']}")
 
     def player_ready():
-        cdp.js("window.gbTest && window.gbTest.ready", timeout=30)
+        cdp.wait("!!window.gbTest", 20)          # the hook may be installed after the module loads
+        cdp.js("window.gbTest.ready", timeout=30)
         size = cdp.js("(() => { const c = document.getElementById('screen'); return c ? [c.width, c.height] : null; })()")
         return size == [160, 144] and cdp.js("gbTest.model()") == "dmg", size
     ready = check("player_ready", player_ready)
@@ -422,7 +423,8 @@ def run(cdp, srv, base, a, td):
 
     def player_frame_cgb():
         cdp.goto(f"{base}/play/{sha256(ucity.read_bytes())}")
-        cdp.js("gbTest.ready", timeout=30)
+        cdp.wait("!!window.gbTest", 20)
+        cdp.js("window.gbTest.ready", timeout=30)
         cdp.js("gbTest.pause(); gbTest.reset();")
         cdp.js("gbTest.step(200)")
         got = cdp.js("gbTest.frameHash()")
