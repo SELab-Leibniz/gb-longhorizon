@@ -108,7 +108,7 @@ Calibration through the real verifier (`test.sh` in the task image):
 | Tree | Reward |
 |---|---|
 | v2 starting point (stubbed + bugged) | **0.056** |
-| The pilot's code + every bug fixed + decisions implemented | **0.762** (tickets 1.0, decisions 1.0; lint 0 only because the test patch was not rustformatted) |
+| The pilot's code + every bug fixed + decisions implemented | **0.762** (tickets 1.0, decisions 1.0; lint 0 only because the test patch was not rustformatted; measured before `player_input` was decoupled from game logic, which now passes too: about 0.765) |
 
 The ceiling is well above 0.76. What separates the two is the accuracy tail
 the pilot never closed: acid2, CGB games, Mealybug and sound.

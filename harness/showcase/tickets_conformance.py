@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from romgen import make_rom, header_checksum, global_checksum  # noqa: E402
+from romgen import make_rom, joypad_rom, fix_checksums as _fix_checksums  # noqa: E402
 
 TICKETS = ["T01", "T02", "T03", "T04", "T05", "T06", "T07", "T08", "T09", "T10", "T11", "T12", "T13"]
 DECISIONS = ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]
@@ -51,20 +51,6 @@ def run(cmd, timeout=300, **kw):
         return 124, "", "timeout"
     except OSError as e:
         return 127, "", str(e)
-
-
-def joypad_rom() -> bytes:
-    """Reads the action buttons (A, B, Select, Start) and writes P1 into BGP every
-    loop: the whole screen's shade follows the buttons held."""
-    rom = bytearray(make_rom(b"JOYPAD", tag=b"joypad-bgp"))
-    code = bytes([0x3E, 0x10,        # LD A,$10    select the action-button group
-                  0xE0, 0x00,        # LDH ($00),A
-                  0xF0, 0x00,        # LDH A,($00)
-                  0xF0, 0x00,        # LDH A,($00)  (second read: settled)
-                  0xE0, 0x47,        # LDH ($47),A  BGP = buttons
-                  0x18, 0xF4])       # JR -12
-    rom[0x150:0x150 + len(code)] = code
-    return _fix_checksums(rom)
 
 
 def irq_priority_rom() -> bytes:
@@ -98,13 +84,6 @@ def wrap_rom() -> bytes:
     rom = bytearray(make_rom(b"WRAP", tag=b"wrap"))
     rom[0x0000:0x0002] = bytes([0xC3, 0xA7])
     return _fix_checksums(rom)
-
-
-def _fix_checksums(rom: bytearray) -> bytes:
-    rom[0x14D] = header_checksum(rom)
-    g = global_checksum(rom)
-    rom[0x14E], rom[0x14F] = g >> 8, g & 0xFF
-    return bytes(rom)
 
 
 # ---------------------------------------------------------------- helpers

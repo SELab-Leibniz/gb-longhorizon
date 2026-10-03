@@ -46,6 +46,28 @@ def make_rom(title: bytes = b"TEST", cart_type: int = 0x00, size_code: int = 0, 
     return bytes(rom)
 
 
+def fix_checksums(rom: bytearray) -> bytes:
+    rom[0x14D] = header_checksum(rom)
+    g = global_checksum(rom)
+    rom[0x14E], rom[0x14F] = g >> 8, g & 0xFF
+    return bytes(rom)
+
+
+def joypad_rom() -> bytes:
+    """Reads the action buttons (A, B, Select, Start) and writes P1 into BGP in a
+    loop, so the whole screen's shade follows the buttons held: input reaches
+    the picture without depending on any game's logic."""
+    rom = bytearray(make_rom(b"JOYPAD", tag=b"joypad-bgp"))
+    code = bytes([0x3E, 0x10,        # LD A,$10    select the action-button group
+                  0xE0, 0x00,        # LDH ($00),A
+                  0xF0, 0x00,        # LDH A,($00)
+                  0xF0, 0x00,        # LDH A,($00)  (second read: settled)
+                  0xE0, 0x47,        # LDH ($47),A  BGP = buttons
+                  0x18, 0xF4])       # JR -12
+    rom[0x150:0x150 + len(code)] = code
+    return fix_checksums(rom)
+
+
 def sha256(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
