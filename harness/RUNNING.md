@@ -131,7 +131,7 @@ the cache. Then check, in `jobs/gb-smoke/<trial>/` (and `jobs/gb-smoke-jiuwenswa
 |---|---|---|
 | no infrastructure error | `result.json` | `"exception_info": null` |
 | agent ran and resumed | `agent/trajectory/*_adapter.jsonl` | `adapter.start`, a `chaos.kill` at ~8 min, `invocation.end` with `session_recovered`, `adapter.stop` at the end |
-| product owner works | `artifacts/po-artifacts/events.jsonl` | `po.answered` lines if the agent asked (agents usually ask the GEP's Open Issues in their first minutes) |
+| product owner works | `artifacts/po-artifacts/events.jsonl` | `po.answered` lines if the agent asked (on `full-spec`, agents asked the GEP's Open Issues in their first minutes; on `showcase-v2`, look for questions about backlog items) |
 | answers in place | `verifier/QUESTIONS.md` | each `## A:` directly under its `## Q:` |
 | network boundary | `artifacts/var/log/tinyproxy/tinyproxy.log` | `Established connection to host "api.deepseek.com"` and no other host |
 | verifier ran | `verifier/reward.json`, `grade-summary.txt` | all metrics present; after 20 minutes nearly everything is 0 (lint may score 0.03) — that is expected |
@@ -189,7 +189,8 @@ harness/scripts/summarize.py jobs/gb-icode jobs/gb-jiuwenswarm \
 ```
 
 prints one row per trial — reward, the seven phase scores, validity, agent
-hours, commits, product-owner questions and which Open Issues were asked,
+hours, commits, product-owner questions and which Open Issues were asked
+(on `showcase-v2`, also the showcase diagnostics table — `SHOWCASE.md`),
 tokens and cost — and per-agent mean / spread / min / max. Per trial you also
 have:
 

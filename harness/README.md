@@ -1,13 +1,18 @@
 # Harness — NOT for the agent
 
 Everything in this directory is removed from the sandbox image. It holds
-the product owner's answers to the specification's Open Issues, the
-product-owner script, the grading scripts and the golden data. (The
+the product owner's decisions on the backlog, the product-owner script, the
+planted bugs and their hidden checks, the grading scripts and the golden
+data. (The
 specification itself, `GEP-0001.md`, is at the repository root: the agent
 has it.) If any of this leaks into the agent's
 workspace, the requirement-clarification measurement is void for that run.
 
-**Running the benchmark:** start with `RUNNING.md` (step by step: setup,
+**This branch is the v2 showcase** — `SHOWCASE.md` explains its design
+(inherited code with stubs, planted bugs, the issue backlog, `gb-oracle`,
+weights, diagnostics, validation).
+
+**Running it:** start with `RUNNING.md` (step by step: setup,
 smoke tests, real runs, results, configuring agents, troubleshooting).
 `BENCHMARK.md` is the operating protocol (what is measured, fixed
 conditions, validity and re-run rules, reporting); `harbor/README.md`
@@ -17,7 +22,8 @@ describes the design.
 harness/
   RUNNING.md              step-by-step guide for running the benchmark — start here
   BENCHMARK.md            the operating protocol for a fair, repeatable campaign
-  HIDDEN_SPEC.md          the product owner's answers to GEP 1's Open Issues (OI-1…OI-6)
+  SHOWCASE.md             the v2 showcase: design, planted bugs, decisions, scoring, validation
+  HIDDEN_SPEC.md          the product owner's decisions on the backlog (ISSUES/)
   PRODUCT_OWNER.md        how the PO agent answers, and what it logs
   AGENT_BRIEF.md          the task statement the agent receives (points at GEP-0001.md)
   golden/                 DMG game frame hashes + input scripts (generated)
@@ -27,7 +33,9 @@ harness/
   harbor/                 THE WAY TO RUN THE STUDY: Harbor task + agents + jobs (see harbor/README.md)
   agents/                 adapter loops for icode/ and jiuwenswarm/ (used by harbor/agents)
   orchestrator/           po_agent.py (used by the PO sidecar), run.py + stub_agent.py for local dry runs
-  ref/                    SameBoy reference runner
+  ref/                    SameBoy reference runner (goldens; built into the sandbox for gb-oracle)
+  oracle/gb-oracle        the agent's reference CLI: SameBoy with the `gb` interface
+  showcase/               planted bugs, hidden backlog checks (tickets_conformance.py), validation, stub tools
   scripts/
     fetch_assets.sh       download Pan Docs, opcode table, test ROMs, homebrew
     vendor.sh             vendor crates and flip cargo to offline

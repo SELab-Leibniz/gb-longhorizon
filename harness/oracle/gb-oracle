@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""gb-oracle — a reference emulator (SameBoy) with the `gb` CLI's interface.
+
+    gb-oracle --rom GAME.gb [--frames N] [--model dmg|cgb|auto]
+              [--input-script FILE] [--hash] [--hashes]
+              [--dump-frame PATH] [--dump-every N --dump-dir DIR]
+              [--mooneye]
+
+Runs the ROM on SameBoy (a mature, accurate emulator) for N frames after the
+cartridge starts and reports what `gb` would report for the same arguments:
+
+  --hash          print "final <16 hex>": FNV-1a-64 of the last frame's bytes
+                  (DMG: one shade 0-3 per pixel; CGB: RGB555 little-endian),
+                  exactly as `gb --hash` computes it
+  --hashes        also print "frame <n> <16 hex>" for every frame 1..N
+  --dump-frame P  write the last frame (PGM for DMG, PPM for CGB)
+  --dump-every N  write every N-th frame into --dump-dir (frame_NNNNNN.pgm/.ppm)
+  --mooneye       stop at the Mooneye test ROMs' LD B,B and check the
+                  Fibonacci registers; exit 10 on pass, 11 on fail (as `gb`)
+
+Input scripts use the `gb` format: "<frame> <BUTTON,BUTTON,...>" per line.
+
+Frame alignment: SameBoy counts V-blanks, `gb` counts 70 224-cycle frames
+from PC=$0100, so the same picture can land one or two frames apart. Compare
+against a window of frames (--hashes), not a single frame number. There is
+no serial output and no CPU trace; use it for pictures and Mooneye results.
+"""
+import argparse
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+RUNNER = "/opt/oracle/sameboy_runner"
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="gb-oracle", description=__doc__.split("\n")[0])
+    ap.add_argument("--rom", required=True, type=Path)
+    ap.add_argument("--frames", type=int, default=60)
+    ap.add_argument("--model", choices=("dmg", "cgb", "auto"), default="dmg")
+    ap.add_argument("--input-script", type=Path)
+    ap.add_argument("--hash", action="store_true")
+    ap.add_argument("--hashes", action="store_true")
+    ap.add_argument("--dump-frame", type=Path)
+    ap.add_argument("--dump-every", type=int, default=0)
+    ap.add_argument("--dump-dir", type=Path, default=Path("."))
+    ap.add_argument("--mooneye", action="store_true")
+    a = ap.parse_args()
+    if a.frames < 1:
+        ap.error("--frames must be at least 1")
+    rom = a.rom.read_bytes()
+    model = a.model
+    if model == "auto":
+        model = "cgb" if len(rom) > 0x143 and rom[0x143] & 0x80 else "dmg"
+    ext = "ppm" if model == "cgb" else "pgm"
+
+    with tempfile.TemporaryDirectory(prefix="gb-oracle-") as td:
+        out = Path(td)
+        dump_every = a.dump_every or (a.frames if a.dump_frame else 0)
+        if a.dump_frame and a.dump_every and a.frames % a.dump_every:
+            dump_every = 1          # need the last frame too
+        args = [RUNNER, str(a.rom), str(a.frames), str(a.input_script or "/dev/null"), str(out), "--model", model]
+        if dump_every:
+            args += ["--dump-every", str(dump_every)]
+        if a.mooneye:
+            args += ["--until-breakpoint"]
+        p = subprocess.run(args, capture_output=True, text=True, errors="replace")
+        if p.returncode not in (0, 3):
+            sys.stderr.write(p.stderr)
+            return 1
+
+        status = 0
+        if a.mooneye:
+            line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
+            if line.startswith("breakpoint"):
+                regs = [int(x) for x in line.split()[4:10]]
+                ok = regs == [3, 5, 8, 13, 21, 34]
+                print(f"mooneye: {'PASS' if ok else 'FAIL'} (B C D E H L = {' '.join(map(str, regs))})")
+                status = 10 if ok else 11
+            else:
+                print(f"mooneye: no LD B,B within {a.frames} frames → FAIL")
+                status = 11
+
+        hashes = [l.split() for l in (out / "hashes.txt").read_text().splitlines() if l.strip()]
+        if a.hashes:
+            for n, h in hashes:
+                print(f"frame {n} {h}")
+        if a.hash and hashes:
+            print(f"final {hashes[-1][1]}")
+        if a.dump_every:
+            a.dump_dir.mkdir(parents=True, exist_ok=True)
+            for f in sorted(out.glob(f"frame_*.{ext}")):
+                if int(f.stem.split("_")[1]) % a.dump_every == 0:
+                    shutil.copy(f, a.dump_dir / f.name)
+        if a.dump_frame and hashes:
+            last = out / f"frame_{int(hashes[-1][0]):06d}.{ext}"
+            if a.mooneye and (out / f"breakpoint.{ext}").exists():
+                last = out / f"breakpoint.{ext}"
+            shutil.copy(last, a.dump_frame)
+        return status
+
+
+if __name__ == "__main__":
+    sys.exit(main())

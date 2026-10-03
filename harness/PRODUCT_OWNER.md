@@ -38,6 +38,9 @@ primary input to the clarification score.
 
 ## Seeded ambiguities
 
-GEP 1 lists them as Open Issues OI-1 … OI-6; `HIDDEN_SPEC.md` has the
-answers. Flag in the log whether each was asked about, and when. Questions
-whose answer is already in the GEP get a pointer to the section.
+Eight backlog issues (`ISSUES/`) ask for something GEP 1 does not settle,
+or for something it rules out; `HIDDEN_SPEC.md` has the product owner's
+decision on each. The `[items: ...]` tag on every answer names the issues
+it drew on, so the log shows which were asked about, and when. Questions
+whose answer is already in GEP 1 (including its Resolved Issues OI-1 …
+OI-6) get a pointer to the section.

@@ -1,15 +1,16 @@
-"""Product-owner agent: answers QUESTIONS.md from GEP-0001.md and the Open Issue answers.
+"""Product-owner agent: answers QUESTIONS.md from GEP-0001.md, the issue backlog and
+the product owner's decisions (HIDDEN_SPEC.md).
 
 Protocol (what the agent sees in TASK.md): append a question to
 QUESTIONS.md under a "## Q:" heading; the PO appends an answer under
 "## A:" within a couple of minutes.
 
-    ## Q: What is the maximum upload size for the game library? (GEP 1 OI-1)
-    ## A: 8 MiB ...
+    ## Q: For #119, what exactly should a downloaded save be called?
+    ## A: <file name without its extension>.sav ...
 
 Implementation: poll the file, find "## Q:" blocks that have no "## A:"
 after them, ask an LLM (OpenAI-compatible chat API; DeepSeek works) with
-the persona in PRODUCT_OWNER.md, GEP-0001.md and HIDDEN_SPEC.md, append
+the persona in PRODUCT_OWNER.md, GEP-0001.md, ISSUES/ and HIDDEN_SPEC.md, append
 the answer, and log everything to runs/<id>/po_log.jsonl for the
 clarification score.
 
@@ -38,8 +39,9 @@ question is really several questions, answer each briefly. If the
 question is ambiguous, ask ONE clarifying question back instead.
 
 Also output, on the last line, a machine-readable tag listing which
-item IDs your answer drew on (Open Issues or GEP requirement IDs),
-e.g.  [items: OI-1]  or  [items: R-WEB-4, OI-2]  or  [items: none].
+item IDs your answer drew on (issue numbers, Resolved Issues or GEP
+requirement IDs), e.g.  [items: #119]  or  [items: #110, OI-2]  or
+[items: none].
 
 === PERSONA AND RULES (PRODUCT_OWNER.md) ===
 {persona}
@@ -60,10 +62,16 @@ class ProductOwner:
         self.base_url = os.environ.get("GB_PO_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
         persona = (HARNESS / "PRODUCT_OWNER.md").read_text()
         spec = (HARNESS / "HIDDEN_SPEC.md").read_text()
+        # notes for the people running the study are not the product owner's business
+        spec = re.sub(r"\n## For the study.*?(?=\n## |\Z)", "\n", spec, flags=re.S)
         # The specification the agent also has (repo root locally, /po in the sidecar).
         gep = next((p for p in (HARNESS / "GEP-0001.md", HARNESS.parent / "GEP-0001.md") if p.exists()), None)
         if gep is not None:
             spec += "\n\n=== THE SPECIFICATION THE ENGINEER HAS (GEP-0001.md) ===\n" + gep.read_text()
+        issues = next((d for d in (HARNESS / "ISSUES", HARNESS.parent / "ISSUES") if d.is_dir()), None)
+        if issues is not None:   # the backlog as handed over (the engineer appends resolutions to its copy)
+            spec += "\n\n=== THE ISSUE BACKLOG THE ENGINEER HAS (ISSUES/) ===\n" + "\n\n".join(
+                f.read_text() for f in sorted(issues.glob("[0-9]*.md")))
         brief = HARNESS / "AGENT_BRIEF.md"
         if brief.exists():   # the engineer's TASK.md: how the run works and how it is evaluated
             spec += ("\n\n=== THE ENGINEER'S TASK.md ===\n"

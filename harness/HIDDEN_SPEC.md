@@ -53,11 +53,12 @@ submitted or not.
 
 ## For the study, not for the agent
 
-Hidden checks P1–P6 test the decisions on #107, #119, #102, #110, #116 and
-#121 exactly as written above (`harness/showcase/tickets_conformance.py`).
-#102, #107 and #119 cannot be guessed reliably; #110, #116 and #121 pass
-unless the agent changes the specified behaviour; #104 and #113 are covered
-by the regular library and front-end checks. Clarification diagnostics
+Hidden checks P1–P7 test the decisions on #107, #119, #102, #110, #116,
+#121 and #104 exactly as written above
+(`harness/showcase/tickets_conformance.py`). #102, #107 and #119 cannot be
+guessed reliably; #110, #116, #121 and #104 pass unless the agent changes
+the specified behaviour; #113 is covered by the regular screenshot and
+player checks (exact colours). Clarification diagnostics
 (which of these eight the agent asked about, and whether it asked before
 committing a change to the affected component) are reported alongside the
 results.

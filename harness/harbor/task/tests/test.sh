@@ -72,12 +72,35 @@ timeout -k 10 1200 python3 /tests/screenshots.py "$G" --roms /tests/roms --golde
         --golden-cgb /tests/golden-cgb \
         --out "$OUT/screenshots" > "$OUT/screenshots.log" 2>&1 || true
 
-python3 - "$OUT/results.json" "$OUT/reward.json" <<'PY'
+# Showcase tickets: hidden checks for the planted bugs (T01-T13) and the
+# product owner's backlog decisions (P1-P6), on the binaries grade.py built.
+timeout -k 10 1800 python3 /tests/tickets_conformance.py "$G" --roms /tests/roms --golden-trace /tests/golden-trace \
+        > "$OUT/tickets.json" 2> "$OUT/tickets-stderr.txt" || true
+# Which issues the graded commit gives a resolution (informational).
+python3 - "$G/ISSUES" > "$OUT/issues.json" <<'PYISSUES'
+import json, re, sys
+from pathlib import Path
+d = Path(sys.argv[1])
+res = {}
+for f in sorted(d.glob("[0-9]*.md")) if d.is_dir() else []:
+    m = re.search(r"^## Resolution\s*\n+(.*)", f.read_text(errors="replace"), re.M)
+    res[f.name.split("-")[0]] = m.group(1).strip()[:300] if m else None
+print(json.dumps({"resolved": sum(v is not None for v in res.values()), "total": len(res), "issues": res}, indent=2))
+PYISSUES
+python3 - "$OUT/results.json" "$OUT/reward.json" "$OUT/tickets.json" "$OUT/issues.json" <<'PY'
 import json, sys
 try:
     r = json.load(open(sys.argv[1]))
 except Exception:
     r = {}
+try:
+    tk = json.load(open(sys.argv[3]))
+except Exception:
+    tk = {}
+try:
+    iss = json.load(open(sys.argv[4]))
+except Exception:
+    iss = {}
 def rate(d):
     t = d.get("total", 0); return (d.get("passed", 0) / t) if t else 0.0
 t0 = r.get("tier0", {}); t1 = r.get("tier1", {}); t2 = r.get("tier2", {}); t3 = r.get("tier3", {}); t4 = r.get("tier4", {})
@@ -124,22 +147,29 @@ m = {
     # --- §7–§8: game library service and web front end ---
     "web_api":            t9.get("api", {}).get("score", 0.0),   # hidden 41-check API suite incl. Open Issues
     "web_ui":             t9.get("ui", {}).get("score", 0.0),    # headless-Chromium end-to-end, 21 checks
+    # --- showcase backlog (ISSUES/) ---
+    "tickets":            tk.get("tickets", {}).get("score", 0.0),    # T01-T13: the planted bugs, fixed
+    "decisions":          tk.get("decisions", {}).get("score", 0.0),  # P1-P6: backlog items as the product owner decided
 }
+# informational: issues with a `## Resolution` in the graded commit
+m["issues_resolved"] = round(iss.get("resolved", 0) / iss["total"], 4) if iss.get("total") else 0.0
 # informational only (manual-review screenshots): fraction of ROMs that booted and rendered
 m["boots"] = (sum(1 for v in shots.values() if v.get("status") == "ok") / len(shots)) if shots else 0.0
-# Headline reward, by GEP 1 section: core 0.30, CGB 0.15, PPU 0.07, tooling
-# 0.13, portability 0.08, library service 0.14, front end 0.10, lint 0.03.
-# Zero if the build fails or the agent edited the frozen harness files (tests
-# then meaningless). Mealybug is not fully achievable even by SameBoy (10/24),
-# so the PPU phase rewards partial progress.
-w = {"blargg": .07, "acid2": .04, "mooneye_acceptance": .06, "mooneye_mbc": .02, "games": .06,
+# Headline reward (showcase v2): emulator accuracy 0.45 (core 0.25, CGB 0.12,
+# PPU 0.08), the issue backlog 0.30 (planted bugs 0.20, product decisions
+# 0.10), breadth 0.23 (tooling 0.07, portability 0.04, library service 0.07,
+# front end 0.05), lint 0.02. Zero if the build fails or the agent edited the
+# frozen harness files (tests then meaningless). Mealybug is not fully
+# achievable even by SameBoy (10/24), so the PPU phase rewards partial progress.
+w = {"blargg": .05, "acid2": .03, "mooneye_acceptance": .05, "mooneye_mbc": .02, "games": .05,
      "apu": .02, "save_state": .02, "determinism": .01,
-     "cgb_mooneye": .04, "cgb_acid2": .04, "cgb_games": .05, "cgb_sound": .02,
-     "mealybug": .04, "mooneye_ppu": .02, "oam_bug": .01,
-     "trace": .06, "profile": .01, "debugger_api": .06,
-     "no_std": .03, "wasm": .05,
-     "web_api": .14, "web_ui": .10,
-     "lint_clean": .03}
+     "cgb_mooneye": .03, "cgb_acid2": .03, "cgb_games": .04, "cgb_sound": .02,
+     "mealybug": .05, "mooneye_ppu": .02, "oam_bug": .01,
+     "trace": .03, "profile": .01, "debugger_api": .03,
+     "no_std": .01, "wasm": .03,
+     "web_api": .07, "web_ui": .05,
+     "tickets": .20, "decisions": .10,
+     "lint_clean": .02}
 # phase sub-scores for the report (each normalised to [0, 1])
 phases = {"core": ["blargg", "acid2", "mooneye_acceptance", "mooneye_mbc", "games", "apu", "save_state", "determinism"],
           "cgb": ["cgb_mooneye", "cgb_acid2", "cgb_games", "cgb_sound"],
@@ -147,7 +177,9 @@ phases = {"core": ["blargg", "acid2", "mooneye_acceptance", "mooneye_mbc", "game
           "tooling": ["trace", "profile", "debugger_api"],
           "portability": ["no_std", "wasm"],
           "library": ["web_api"],
-          "front_end": ["web_ui"]}
+          "front_end": ["web_ui"],
+          "tickets": ["tickets"],
+          "decisions": ["decisions"]}
 for name, keys in phases.items():
     m["phase_" + name] = round(sum(m[k] * w[k] for k in keys) / sum(w[k] for k in keys), 4)
 assert abs(sum(w.values()) - 1.0) < 1e-9

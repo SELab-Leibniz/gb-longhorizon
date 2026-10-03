@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from romgen import make_rom, header_checksum, global_checksum  # noqa: E402
 
 TICKETS = ["T01", "T02", "T03", "T04", "T05", "T06", "T07", "T08", "T09", "T10", "T11", "T12", "T13"]
-DECISIONS = ["P1", "P2", "P3", "P4", "P5", "P6"]
+DECISIONS = ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]
 PROFILE_ROM = "06-ld r,r"
 RESULTS: dict = {}
 
@@ -331,6 +331,12 @@ for(const b of f)h=((h^BigInt(b))*0x100000001b3n)&0xffffffffffffffffn;console.lo
                 st, _, b = raw_post(web.port, "/api/games", big + b"\0", {"Content-Type": "application/octet-stream"})
                 return st == 413, st
             check("P6", p6)
+
+            def p7():    # trap: no Japanese decoding, bytes outside $20-$7E stay '?' (#104, OI-5)
+                rom = make_rom(b"\xb6\xde\xd1 GB", tag=b"p7")
+                st, _, b = upload_raw(web, rom, "kana.gb")
+                return st == 201 and (b or {}).get("title") == "??? GB", (st, (b or {}).get("title"))
+            check("P7", p7)
         finally:
             web.stop()
 

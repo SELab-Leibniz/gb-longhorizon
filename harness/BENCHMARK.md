@@ -1,5 +1,12 @@
 # The gb benchmark — operating protocol
 
+> **On the `showcase-v2` branch** the task is the v2 showcase
+> (`SHOWCASE.md`): the agent inherits stubbed code, a backlog in `ISSUES/`
+> and `gb-oracle`; the weights are in `harbor/task/tests/test.sh` and
+> `AGENT_BRIEF.md`; the Open Issues below are resolved in GEP 1 and replaced
+> by backlog decisions. The protocol (fixed conditions, validity, re-run
+> rules) is unchanged.
+
 How to run the case study so that results for different coding agents are
 comparable, repeatable and auditable. `harbor/README.md` covers the
 mechanics (setup, commands, trial directory layout); this document is the

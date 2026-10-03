@@ -5,8 +5,9 @@
 FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 WORKDIR /po
-# Staged by harness/harbor/sync.sh from GEP-0001.md, harness/{HIDDEN_SPEC,PRODUCT_OWNER}.md
+# Staged by harness/harbor/sync.sh from GEP-0001.md, ISSUES/, harness/{HIDDEN_SPEC,PRODUCT_OWNER}.md
 # and orchestrator/po_agent.py
 COPY GEP-0001.md AGENT_BRIEF.md HIDDEN_SPEC.md PRODUCT_OWNER.md po_agent.py sidecar.py ./
+COPY ISSUES ./ISSUES
 RUN git config --global --add safe.directory /work
 CMD ["python3", "-u", "/po/sidecar.py"]

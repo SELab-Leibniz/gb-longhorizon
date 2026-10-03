@@ -1,51 +1,62 @@
 # gb — a Game Boy emulator in Rust
 
 <!-- operator-notes:start -->
-> **This repository is a coding-agent benchmark.** The README below is the
-> one the agent under test reads (this note is removed from its copy). To
-> run the benchmark, start with **[`harness/RUNNING.md`](harness/RUNNING.md)**;
-> the protocol is [`harness/BENCHMARK.md`](harness/BENCHMARK.md) and the
-> task is [`GEP-0001.md`](GEP-0001.md) + [`harness/AGENT_BRIEF.md`](harness/AGENT_BRIEF.md).
+> **This repository is a coding-agent showcase.** The README below is the
+> one the agent under test reads (this note is removed from its copy). The
+> showcase's design is in **[`harness/SHOWCASE.md`](harness/SHOWCASE.md)**; to
+> run it, see [`harness/RUNNING.md`](harness/RUNNING.md). The task is
+> [`GEP-0001.md`](GEP-0001.md), [`ISSUES/`](ISSUES/) and
+> [`harness/AGENT_BRIEF.md`](harness/AGENT_BRIEF.md).
 <!-- operator-notes:end -->
 
-This repository is a partially built Game Boy emulator. The structure,
-public interfaces, command-line tool and acceptance tests are in place; the
-hardware behaviour is not. Your job is to build the whole platform specified
-in **`GEP-0001.md`** — the emulator core (DMG and Game Boy Color), developer
-tooling, embedded and WebAssembly builds, and a web game library with an
-in-browser player.
+This repository is the `gb` emulator platform, handed over by the team
+that built it so far. It is specified in **`GEP-0001.md`**: a Game Boy (DMG)
+and Game Boy Color emulator core, developer tooling, embedded and
+WebAssembly builds, and a web game library with an in-browser player. Most
+of it is written; what is left is to finish it.
 
-## What you are building
+## What is left to do
+
+* **Unfinished functions.** Some central functions were never finished:
+  their signature and doc comment are in place, the body is `todo!(...)`
+  (Rust) or `throw new Error("not implemented: ...")` (the player's
+  JavaScript). `rg -n 'todo!\(|not implemented:' gb-*` lists them; each
+  message says what the function must do and which part of GEP 1 specifies
+  it.
+* **The issue backlog** in `ISSUES/` — bug reports and requests from users,
+  QA, developers and the product side. `ISSUES/README.md` explains how to
+  record a resolution.
 
 `GEP-0001.md` is the complete specification: requirements, acceptance
-targets and the exact formats and APIs other teams will test against. Read
-it first. Its **Open Issues** are decided by the product owner — ask
-(see `TASK.md`) rather than guess.
+targets and the exact formats and APIs other teams test against. Read it
+first. What it does not settle is decided by the product owner — ask (see
+`TASK.md`) rather than guess.
 
-The core (`gb-core`) must pass the standard accuracy test ROMs, and the
-command-line runner (`gb-cli`) drives it deterministically so that games can
-be tested by script. A small window front-end (`gb-gui`) exists for demos.
-The crates `gb-tools`, `gb-wasm` and `gb-web` do not exist yet; you create
-them (GEP 1 §5–§8).
+A small window front-end (`gb-gui`) exists for demos.
 
 ## Layout
 
 ```
 gb-core/            emulator library — no dependencies, no unsafe
-  src/cpu/          SM83 core (registers ✓, decode/execute ✗)
-  src/mmu.rs        bus + address decoding (✗)
-  src/ppu.rs        graphics (✗)
-  src/apu.rs        audio (✗)
-  src/timer.rs      DIV/TIMA (✗)
-  src/interrupts.rs IF/IE (✓)
-  src/joypad.rs     buttons (parse ✓, register ✗)
-  src/serial.rs     link port, captures test-ROM output (✗)
-  src/cartridge/    header parsing ✓, MBC1/3/5 ✗
-  src/emulator.rs   public facade — fully wired, do not change its API
-  src/util.rs       hashing, PGM output ✓
+  src/cpu/          SM83 core: registers, decode/execute
+  src/mmu.rs        bus, address decoding, OAM DMA, CGB HDMA
+  src/ppu.rs        graphics (DMG and CGB)
+  src/apu.rs        audio
+  src/timer.rs      DIV/TIMA
+  src/interrupts.rs IF/IE
+  src/joypad.rs     buttons
+  src/serial.rs     link port, captures test-ROM output
+  src/cartridge/    header parsing, MBC1/3/5
+  src/emulator.rs   public facade — do not change its API
+  src/util.rs       hashing, PGM output
   tests/rom_suite.rs  acceptance suite (harness code — do not modify)
 gb-cli/             `gb` headless runner (harness code — do not modify)
+gb-tools/           `gb-trace` (CPU trace, profiler) and `gb-server` (debugger API)
+gb-wasm/            the core as a WebAssembly module (GEP 1 Appendix C)
+gb-web/             game library service and JSON API; static/ is the web
+                    front end and the in-browser player
 gb-gui/             demo window (optional, not built by default)
+ISSUES/             the issue backlog
 docs/               Pan Docs, opcode table, Gekkio's timing reference
 docs/specs/         reference CPU trace excerpt (GEP 1 Appendix A)
 roms/test/          Blargg, Mooneye (DMG + CGB), dmg-acid2, cgb-acid2,
@@ -57,7 +68,10 @@ DECISIONS.md        architectural decisions already taken
 TESTING.md          how to verify your work, step by step
 ```
 
-✓ = implemented, ✗ = `todo!()` stub with its interface and doc comment in place.
+`gb-oracle` (on the `PATH`) runs a ROM on SameBoy, a mature reference
+emulator, with the same options and output as `gb`; use it to see what a
+frame should look like or whether a Mooneye test should pass
+(`gb-oracle --help`).
 
 ## Rules
 
@@ -72,7 +86,7 @@ TESTING.md          how to verify your work, step by step
    framebuffers, every run. No wall-clock, no randomness, no thread timing.
 4. Commit early and often with messages that say *why*. Record any new
    architectural decision in `DECISIONS.md` the same way the existing ones
-   are recorded.
+   are recorded, and each issue's resolution in its file in `ISSUES/`.
 5. The build runs with `-D warnings`. Keep `cargo clippy --workspace --all-targets` and
    `cargo fmt --all --check` clean.
 
@@ -91,10 +105,11 @@ cargo run -p gb-gui -- roms/games/<game>.gb # needs a display
 
 The ROM suite prints one line per ROM and catches panics, so a `todo!()`
 shows up as `PANIC <rom>: not yet implemented: ...` rather than killing the
-run. Expect everything to fail until the CPU and MMU exist.
+run. Expect most of it to fail until the CPU's and the PPU's unfinished
+functions are written.
 
 ## Where to start
 
-`GEP-0001.md`, then `DECISIONS.md`, then `docs/`, then
+`GEP-0001.md`, then `DECISIONS.md`, then `ISSUES/README.md`, then
 `gb-core/src/emulator.rs` to see how the pieces are called. The module doc comments say what each component owns and
 which test ROMs exercise it.

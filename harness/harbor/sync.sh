@@ -29,7 +29,8 @@ PYCHECK
 mkdir -p "$T/tests/golden" "$T/tests/frozen/gb-core/tests" "$T/tests/frozen/gb-cli/src"
 cp "$H/scripts/grade.py" "$H/scripts/screenshots.py" "$H/scripts/trace_blocks.py" \
    "$H/scripts/api_conformance.py" "$H/scripts/wasm_check.py" "$H/scripts/pngio.py" \
-   "$H/scripts/web_conformance.py" "$H/scripts/ui_e2e.py" "$H/scripts/romgen.py" "$T/tests/"
+   "$H/scripts/web_conformance.py" "$H/scripts/ui_e2e.py" "$H/scripts/romgen.py" \
+   "$H/showcase/tickets_conformance.py" "$T/tests/"
 rm -rf "$T/tests/golden" && cp -R "$H/golden" "$T/tests/golden"
 rm -rf "$T/tests/golden-cgb" "$T/tests/golden-trace" "$T/tests/roms"
 cp -R "$H/golden-cgb" "$T/tests/golden-cgb"
@@ -38,9 +39,11 @@ cp -R "$H/.assets/roms" "$T/tests/roms"
 cp "$H/../gb-core/tests/rom_suite.rs" "$T/tests/frozen/gb-core/tests/"
 cp "$H/../gb-cli/src/main.rs" "$T/tests/frozen/gb-cli/src/"
 
-# product-owner sidecar: the GEP (which the agent also has) + the Open Issue answers
+# product-owner sidecar: the GEP and the backlog (which the agent also has) +
+# the product owner's decisions on backlog items
 cp "$H/../GEP-0001.md" "$H/AGENT_BRIEF.md" "$H/HIDDEN_SPEC.md" "$H/PRODUCT_OWNER.md" "$H/orchestrator/po_agent.py" \
    "$T/environment/po/"
+rm -rf "$T/environment/po/ISSUES" && cp -R "$H/../ISSUES" "$T/environment/po/ISSUES"
 
 # instruction = the agent brief body
 python3 -c "print(open('$H/AGENT_BRIEF.md').read().split('\n---\n',1)[1].lstrip())" > "$T/instruction.md"

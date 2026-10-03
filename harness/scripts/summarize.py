@@ -8,6 +8,12 @@ reward.json, the trial's artifacts and the agent's trajectory, and prints a
 Markdown report: one row per trial, then mean / spread / min / max per agent.
 Prices are USD per million tokens (optional; omit to report tokens only).
 
+A second table holds the showcase diagnostics (reported, never scored): the
+backlog's hidden checks, which planted bugs were fixed at the planted line and
+when, which product decisions the agent asked about and whether before its
+first change to the library, notes files, tests added, gb-oracle use,
+context compactions and sub-agents.
+
 Validity (a trial is reported but flagged, never silently dropped):
   infra     Harbor recorded no exception and the verifier wrote reward.json
   egress    no connection was established to any host but the model API
@@ -21,11 +27,25 @@ import argparse
 import json
 import re
 import statistics
+import subprocess
+import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "showcase"))
+try:
+    from bugs import BUGS          # planted bugs: id -> (file, original, planted)
+except ImportError:
+    BUGS = {}
+
 ALLOWED_HOSTS = {"api.deepseek.com"}
-PHASES = ["core", "cgb", "ppu", "tooling", "portability", "library", "front_end"]
+PHASES = ["core", "cgb", "ppu", "tooling", "portability", "library", "front_end", "tickets", "decisions"]
+# hidden check -> the issue that reports it
+TICKET_ISSUE = {"T01": "103", "T02": "111", "T03": "105", "T04": "114", "T05": "101", "T06": "108", "T07": "117",
+                "T08": "120", "T09": "112", "T10": "106", "T11": "118", "T12": "115", "T13": "109"}
+# backlog items that need (or rule on) a product decision -> their hidden check (None: covered by regular checks)
+DECISION_ISSUES = {"107": "P1", "119": "P2", "102": "P3", "110": "P4", "116": "P5", "121": "P6", "104": "P7", "113": None}
 
 
 def load(p: Path, default=None):
@@ -93,6 +113,67 @@ def usage_jiuwenswarm(traj: Path):
     return tot if tot["calls"] else None
 
 
+def git(repo: Path, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, errors="replace").stdout
+
+
+def bug_marker(old: str, new: str) -> str:
+    """The longest line of the planted text that the original does not have."""
+    lines = [l.strip() for l in new.splitlines() if l.strip() and l.strip() not in old]
+    return max(lines, key=len) if lines else new.strip()
+
+
+def repo_history(trial: Path):
+    """Localization, memory and verification evidence from the trial's repo.bundle."""
+    bundle = trial / "verifier/repo.bundle"
+    if not bundle.exists():
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td) / "repo"
+        subprocess.run(["git", "clone", "-q", str(bundle), str(repo)], capture_output=True)
+        if not (repo / ".git").exists():
+            return None
+        log = [l.split("\t") for l in git(repo, "log", "--reverse", "--format=%H\t%at\t%an").splitlines()]
+        start = int(log[0][1]) if log else 0
+        scaffold = {h for h, _, an in log if an == "Scaffold"}
+        bugs = {}
+        for bid, (rel, old, new) in BUGS.items():
+            marker = bug_marker(old, new)
+            head = (repo / rel).read_text(errors="replace") if (repo / rel).exists() else ""
+            removed = [l.split("\t") for l in git(repo, "log", "--format=%H\t%at", "-S", marker, "--", rel).splitlines()]
+            removed = [(h, int(t)) for h, t in removed if h not in scaffold]
+            bugs["T" + bid[1:]] = {"planted_line_present": marker in head,
+                                  "changed_at_h": round((removed[0][1] - start) / 3600, 2) if removed and marker not in head else None}
+        added = git(repo, "log", "--diff-filter=A", "--name-only", "--format=", "--author=Coding Agent").split()
+        notes = sorted({f for f in added if f.lower().endswith((".md", ".txt"))
+                        and not f.startswith("ISSUES/") and f not in ("SUBMISSION.md", "QUESTIONS.md")})
+        tests = sorted({f for f in added if re.search(r"(^|/)tests?/|_test\.|test_|\.(py|sh|mjs|js)$", f)
+                        and not f.startswith("gb-web/static/")})
+        web = [int(t) for t in git(repo, "log", "--format=%at", "--author=Coding Agent", "--", "gb-web").split()]
+        return {"start": start, "bugs": bugs, "notes_files": notes,
+                "notes_commits": {f: len(git(repo, "log", "--format=%H", "--", f).split()) for f in notes},
+                "tests_added": tests, "first_library_commit": min(web) if web else None}
+
+
+def agent_activity(traj: Path, agent: str):
+    """Context compactions, sub-agents and gb-oracle calls from the agent's own logs."""
+    out = {"compactions": 0, "sub_agents": 0, "oracle_calls": 0}
+    files = (list(traj.glob("chrys/sessions/*/trajectory/events.jsonl")) if agent == "icode"
+             else list(traj.glob("jw_events_*.jsonl")))
+    for f in files:
+        for line in f.open(errors="replace"):
+            if agent == "icode":
+                if '"compaction.finished"' in line:
+                    out["compactions"] += 1
+                elif '"sub_agent.started"' in line:
+                    out["sub_agents"] += 1
+            elif '"context.compression_state"' in line and '"status": "completed"' in line:
+                out["compactions"] += 1
+            if "gb-oracle" in line and ('"tool.operation.started"' in line or '"chat.tool_call"' in line):
+                out["oracle_calls"] += 1
+    return out
+
+
 def product_owner(trial: Path):
     art = trial / "artifacts/po-artifacts"
     qs = []
@@ -103,13 +184,20 @@ def product_owner(trial: Path):
             pass
     asked = set()
     early = set()
+    first_ask = {}
     for q in qs:
         ids = {i.upper() for i in q.get("items", []) if re.fullmatch(r"(?i)OI-\d", i)}
         ids |= set(re.findall(r"\bOI-\d\b", q.get("question", "").upper()))
         asked |= ids
         if not q.get("agent_had_committed_product_code"):
             early |= ids
-    return {"questions": len(qs), "open_issues_asked": sorted(asked), "asked_before_first_product_commit": sorted(early)}
+        # backlog items, by the answer's [items: #NNN] tag or a number in the question
+        nums = {i.lstrip("#") for i in q.get("items", []) if re.fullmatch(r"#?\d{3}", i.strip())}
+        nums |= set(re.findall(r"#?\b(1[0-2]\d)\b", q.get("question", "")))
+        for n in nums & set(DECISION_ISSUES):
+            first_ask.setdefault(n, q.get("t"))
+    return {"questions": len(qs), "open_issues_asked": sorted(asked), "asked_before_first_product_commit": sorted(early),
+            "decision_issues_asked": dict(sorted(first_ask.items()))}
 
 
 def trial_row(trial: Path):
@@ -138,6 +226,32 @@ def trial_row(trial: Path):
         "submission": (trial / "verifier/SUBMISSION.md").exists(),
         "tokens": use,
         "product_owner": product_owner(trial),
+        "showcase": showcase(trial, agent, traj),
+    }
+
+
+def showcase(trial: Path, agent: str, traj: Path):
+    tk = load(trial / "verifier/tickets.json", {}) or {}
+    iss = load(trial / "verifier/issues.json", {}) or {}
+    hist = repo_history(trial)
+    po = product_owner(trial)
+    checks = {k: v["ok"] for block in tk.values() for k, v in block.get("checks", {}).items()}
+    asked = po["decision_issues_asked"]
+    first_web = (hist or {}).get("first_library_commit")
+    before = sorted(n for n, t in asked.items()
+                    if t is not None and (first_web is None or (t if t > 1e9 else 0) <= first_web))
+    fixed_at_site = sorted(t for t, b in ((hist or {}).get("bugs") or {}).items() if not b["planted_line_present"])
+    fix_hours = sorted(b["changed_at_h"] for b in ((hist or {}).get("bugs") or {}).values() if b["changed_at_h"] is not None)
+    return {
+        "tickets": checks, "issues_resolved": iss.get("resolved"), "issues_total": iss.get("total"),
+        "bugs_fixed": sorted(k for k, ok in checks.items() if k.startswith("T") and ok),
+        "bugs_changed_at_planted_line": fixed_at_site,
+        "bug_change_hours": fix_hours,
+        "decisions_passed": sorted(k for k, ok in checks.items() if k.startswith("P") and ok),
+        "decision_issues_asked": sorted(asked), "asked_before_first_library_commit": before,
+        "notes_files": (hist or {}).get("notes_files"), "notes_commits": (hist or {}).get("notes_commits"),
+        "tests_added": len((hist or {}).get("tests_added") or []),
+        **agent_activity(traj, agent),
     }
 
 
@@ -186,6 +300,26 @@ def main():
         means = [statistics.mean(r["phases"][p] or 0.0 for r in rs) for p in PHASES]
         print(f"| {agent} | {len(rs)} | {statistics.mean(rew):.3f} | {sd:.3f} | {min(rew):.3f} | {max(rew):.3f} | "
               + " | ".join(f"{m:.2f}" for m in means) + " |")
+    print("\n## Showcase diagnostics (reported, not scored)\n")
+    print("| trial | bugs fixed /13 | at planted line | hours to change (median) | decisions /7 | "
+          "decision issues asked /8 | asked before 1st library commit | issues resolved | notes files | "
+          "tests added | gb-oracle calls | compactions | sub-agents |")
+    print("|" + "---|" * 13)
+    for r in rows:
+        d = r["showcase"]
+        hrs = d["bug_change_hours"]
+        if not d["tickets"]:      # not a showcase trial (no planted bugs, no hidden backlog checks)
+            print(f"| {r['job']}/{r['trial']} | n/a | n/a | n/a | n/a | n/a | n/a | n/a | {len(d['notes_files'] or [])} | "
+                  f"{d['tests_added']} | {d['oracle_calls']} | {d['compactions']} | {d['sub_agents']} |")
+            continue
+        print(f"| {r['job']}/{r['trial']} | {len(d['bugs_fixed'])} | {len(d['bugs_changed_at_planted_line'])} | "
+              f"{fmt(statistics.median(hrs), 1) if hrs else '–'} | {len(d['decisions_passed'])} | "
+              f"{len(d['decision_issues_asked'])} ({','.join('#' + n for n in d['decision_issues_asked']) or '–'}) | "
+              f"{len(d['asked_before_first_library_commit'])} | {fmt(d['issues_resolved'])}/{fmt(d['issues_total'])} | "
+              f"{len(d['notes_files'] or [])} | {d['tests_added']} | {d['oracle_calls']} | {d['compactions']} | {d['sub_agents']} |")
+    print("\nBugs: hidden checks T01-T13 (ISSUES #101-#120). 'At planted line': the planted line is gone from the "
+          "graded commit; hours: when it changed. Decisions: hidden checks P1-P7 (#107, #119, #102, #110, #116, #121, #104); "
+          "#113 (colour correction) is covered by the regular screenshot and player checks.")
     for r in rows:
         if r["egress"].get("blocked_attempts"):
             print(f"\nnote: {r['trial']} tried to reach blocked hosts: {', '.join(r['egress']['blocked_attempts'][:8])}")

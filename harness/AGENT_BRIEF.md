@@ -3,27 +3,44 @@
 This is the task statement every agent receives, verbatim, as its first
 prompt and as `TASK.md` in the workspace. It says how the run works and how
 it is evaluated; the specification of what to build is `GEP-0001.md` in the
-repository. What the GEP leaves open (its Open Issues) is in
-`HIDDEN_SPEC.md`, known only to the product owner. If you change the
-weights or rules here, change `harness/harbor/task/tests/test.sh` with them.
+repository, and the backlog is `ISSUES/`. The product owner's decisions on
+backlog items the GEP does not settle are in `HIDDEN_SPEC.md`. If you change
+the weights or rules here, change `harness/harbor/task/tests/test.sh` with
+them.
 
 ---
 
 # Task
 
-You're taking over an emulator project. This repository is a Game Boy
-emulator in Rust with the structure, public API, command-line tool and test
-suite in place, but most of the hardware is still unimplemented. We need
-the whole platform finished: the emulator core (original Game Boy and Game
-Boy Color), developer tooling, embedded and WebAssembly builds, and a web
-game library where users browse, upload and play games in the browser.
+You're taking over an emulator platform from a team that has moved on. This
+repository is the 1.0 release of `gb`, specified in `GEP-0001.md`: a Game Boy
+and Game Boy Color emulator core in Rust, the `gb` command-line tool,
+developer tooling (`gb-trace`, `gb-server`), a `no_std` core and a
+WebAssembly build, and a web game library (`gb-web`) where users browse,
+upload and play games in the browser.
 
-## What to build
+The previous team got a long way, but left two kinds of unfinished work:
 
-`GEP-0001.md` at the repository root is the complete specification —
-requirements, acceptance targets, and the exact formats and APIs that will
-be tested. Read it, then `README.md`, `DECISIONS.md` and `TESTING.md`.
-Hardware documentation is in `docs/`; test ROMs and games are in `roms/`.
+1. **Missing implementations.** Several central functions were never
+   finished. They are still there with their signatures and doc comments,
+   but the body is `todo!(...)` in Rust or
+   `throw new Error("not implemented: ...")` in the player's JavaScript.
+   Until they are written, most of the emulator, the tools and the web
+   application do not work.
+2. **The issue backlog** in `ISSUES/`: 21 reports from users, QA,
+   developers and the product side. Reporters describe what they saw, not
+   the cause, and are sometimes wrong about what the right behaviour is.
+
+Finish the release: implement what is missing so the platform meets GEP 1,
+resolve every issue in the backlog, and keep everything that works working.
+
+## What to read
+
+`GEP-0001.md` at the repository root is the specification — requirements,
+acceptance targets, the exact formats and APIs that will be tested, and the
+Resolved Issues the product owner has already decided. Then `README.md`,
+`DECISIONS.md`, `TESTING.md` and `ISSUES/README.md`. Hardware documentation
+is in `docs/`; test ROMs and games are in `roms/`.
 
 ## How this run works
 
@@ -41,12 +58,19 @@ Hardware documentation is in `docs/`; test ROMs and games are in `roms/`.
   `wasm32-unknown-unknown` targets; Node.js 18; Chromium (headless);
   Python 3 with the `websocket` module; git, ripgrep, cmake, a C toolchain.
   Nothing else can be installed.
+* **Reference emulator:** `gb-oracle` runs a ROM on SameBoy, a mature and
+  accurate emulator, with the `gb` CLI's options and output (`--frames`,
+  `--model`, `--input-script`, `--hash`, `--dump-frame`, `--dump-every`,
+  `--mooneye`, plus `--hashes` for every frame). `gb-oracle --help` explains
+  how its frame numbers line up with `gb`'s. It shows what the hardware
+  would show; it has no CPU trace and no serial output.
 * How you organise the work — planning, notes and memory files in the
   repository, sub-agents, test scripts, the order of the work — is up to you.
 
 ## The product owner
 
-The GEP's **Open Issues** are decided by the product owner, and so is any
+Anything GEP 1 does not settle — including what a feature request in the
+backlog should do, exactly — is decided by the product owner, and so is any
 other scope question. Append questions to `QUESTIONS.md` as a heading in
 this exact form, one question per heading:
 
@@ -57,33 +81,38 @@ this exact form, one question per heading:
 The answer appears directly under your question, under a `## A:` heading,
 usually within a couple of minutes; keep working while you wait. Only
 `## Q:` headings are read. The product owner is responsive but not
-technical — ask about requirements, not implementation.
+technical — ask about requirements and behaviour, not implementation.
 
 ## How the work is evaluated
 
 At the 48-hour mark, the **last commit** on the current branch is checked
 out into a clean directory and graded automatically; uncommitted changes
-are ignored. Hidden test suites implement the GEP's Acceptance table and
-appendices, including the Open Issues as the product owner decided them;
-the checks in `TESTING.md` and the ROM suite are a subset of them. Every
-area earns partial credit:
+are ignored. Hidden test suites implement GEP 1's Acceptance table and
+appendices; the checks in `TESTING.md` and the ROM suite are a subset of
+them. The backlog is graded by behaviour: hidden tests check that each bug
+is gone, that each request is handled the way the product owner decided,
+and that declined requests did not change specified behaviour. Every area
+earns partial credit:
 
-| Area | GEP 1 | Weight |
+| Area | Where | Weight |
 |---|---|---|
-| Emulator core (DMG) | §2 | 30 % |
-| Game Boy Color | §3 | 15 % |
-| Pixel-accurate PPU | §4 | 7 % |
-| Tooling: `gb-trace`, `gb-server` | §5 | 13 % |
-| Portability: `no_std`, `gb-wasm` | §6 | 8 % |
-| Game library service `gb-web` | §7 | 14 % |
-| Web front end and player | §8 | 10 % |
-| `clippy` and `rustfmt` clean over the whole workspace | R-BASE-4 | 3 % |
+| Emulator core (DMG) | GEP 1 §2 | 25 % |
+| Game Boy Color | GEP 1 §3 | 12 % |
+| Pixel-accurate PPU | GEP 1 §4 | 8 % |
+| Tooling: `gb-trace`, `gb-server` | GEP 1 §5 | 7 % |
+| Portability: `no_std`, `gb-wasm` | GEP 1 §6 | 4 % |
+| Game library service `gb-web` | GEP 1 §7 | 7 % |
+| Web front end and player | GEP 1 §8 | 5 % |
+| Bugs in the backlog, fixed | `ISSUES/` | 20 % |
+| Requests in the backlog, handled as the product owner decided | `ISSUES/` | 10 % |
+| `clippy` and `rustfmt` clean over the whole workspace | R-BASE-4 | 2 % |
 
 * The whole score is 0 if `gb-core` or `gb-cli` does not build, or if a
   frozen file (GEP 1 R-BASE-2) differs from the original.
 * A crate that does not build scores 0 in the areas that need it (the
   player in §8, for example, needs `gb-wasm`); other areas are unaffected.
-* `SUBMISSION.md` is read by people; it does not change the score.
+* The `## Resolution` notes in `ISSUES/` and `SUBMISSION.md` are read by
+  people; they do not change the score.
 
 ## Rules
 
@@ -91,12 +120,14 @@ area earns partial credit:
   other than through your own model access.
 * Do not modify the frozen files (GEP 1 R-BASE-2) or the test ROMs and
   expected results in `roms/`.
+* Do not delete or renumber the files in `ISSUES/`; add each resolution to
+  its issue's file.
 * Work in this repository and commit to the current branch.
 
 ## When you are done
 
 Commit as you go. When you consider the work complete and verified, write
 `SUBMISSION.md` at the repository root — what was implemented, which checks
-pass, and what (if anything) is known to be missing, by GEP requirement ID —
-and commit it. Whatever is committed when the 48 hours end is what is
-evaluated.
+pass, how each issue was resolved, and what (if anything) is known to be
+missing, by GEP requirement ID and issue number — and commit it. Whatever
+is committed when the 48 hours end is what is evaluated.

@@ -1,8 +1,8 @@
 # Testing the emulator
 
-Everything here runs offline. Expect all ROM suites to fail until the CPU
-and MMU exist; the point of this file is that you never have to guess how
-to check your work.
+Everything here runs offline. Expect most ROM suites to fail until the
+unfinished functions in the CPU and the PPU are written; the point of this
+file is that you never have to guess how to check your work.
 
 ## 1. Build and lint (must stay clean)
 
@@ -98,3 +98,25 @@ contract, and you are expected to write your own checks against them:
   the DevTools protocol; or `--dump-dom` / `--screenshot` for quick looks.
 * **`no_std`** — `cargo build -p gb-core --release --no-default-features
   --target thumbv7em-none-eabihf`.
+
+## 9. Comparing with the reference emulator
+
+`gb-oracle` runs the same ROM on SameBoy with `gb`'s options and output, so
+a difference between the two is a lead:
+
+```sh
+gb-oracle --rom roms/games/tobudx.gb --frames 600 --hash
+cargo run --release -p gb-cli -- --rom roms/games/tobudx.gb --frames 600 --hash
+gb-oracle --rom roms/games-cgb/ucity.gbc --model cgb --frames 600 --dump-frame ref.ppm
+gb-oracle --rom roms/test/mooneye/acceptance/timer/div_write.gb --frames 1200 --mooneye
+```
+
+The two count frames differently, so the same picture can be a frame or
+two apart: compare `gb --dump-every 1` frames against
+`gb-oracle --hashes` over a small window rather than one frame number.
+
+## 10. Issues
+
+Reproduce an issue before changing code for it, and keep the reproduction
+as a test or a script so it stays fixed. Record the resolution in the
+issue's file (`ISSUES/README.md`).

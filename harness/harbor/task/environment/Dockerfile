@@ -10,6 +10,18 @@
 #
 # Build args let you pin exact revisions for a reproducible study.
 
+# ---- reference emulator (gb-oracle) ----------------------------------------
+# SameBoy at a pinned commit, driven by harness/ref/sameboy_runner.c; only the
+# binary goes into the sandbox (as /opt/oracle/sameboy_runner, wrapped by
+# /usr/local/bin/gb-oracle).
+FROM rust:1.97.0-bookworm AS oracle
+RUN apt-get update && apt-get install -y --no-install-recommends clang make git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY scaffold.tar /tmp/scaffold.tar
+RUN mkdir -p /src && tar -xf /tmp/scaffold.tar -C /src harness/ref \
+    && /src/harness/ref/build.sh \
+    && /src/harness/ref/bin/sameboy_runner 2>&1 | grep -q usage
+
 FROM rust:1.97.0-bookworm
 
 ARG ICODE_REPO=https://github.com/openJiuwen-ai/iCode
@@ -48,6 +60,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rustup target add --toolchain 1.97.0 thumbv7em-none-eabihf wasm32-unknown-unknown \
     && chromium --version
 
+COPY --from=oracle /src/harness/ref/bin/sameboy_runner /opt/oracle/sameboy_runner
+
 # The repo's rust-toolchain.toml says "stable" (so dev machines build); inside
 # the sandbox pin the toolchain the image ships, so rustup never tries to
 # download a newer stable and every run uses the same compiler.
@@ -85,6 +99,10 @@ RUN harness/scripts/fetch_assets.sh \
     && cargo build --release --offline \
     && cargo test --release --offline --no-run \
     && rm -rf target/release/incremental
+
+# The reference emulator's CLI (the binary was copied from the oracle stage).
+RUN install -m 755 harness/oracle/gb-oracle /usr/local/bin/gb-oracle \
+    && gb-oracle --rom roms/test/acid2/dmg-acid2.gb --frames 60 --hash | grep -q '^final '
 
 # Adapter scripts (the loop that keeps each agent working for 48 h).
 RUN mkdir -p /opt/gb-agents && cp -r /work/harness/agents/icode /work/harness/agents/jiuwenswarm \
