@@ -1,0 +1,9 @@
+{
+  "comment": "Issues filed during the run. Wave N is filed after_hours after the start (times GB_WAVE_TIME_SCALE), or earlier if the agent reported the work complete since the previous wave. Wave 0 is ISSUES/ in the repository.",
+  "waves": [
+    {"wave": 1, "after_hours": 4},
+    {"wave": 2, "after_hours": 12},
+    {"wave": 3, "after_hours": 24},
+    {"wave": 4, "after_hours": 36}
+  ]
+}

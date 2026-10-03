@@ -1,0 +1,5 @@
+New issues have been filed in ISSUES/ while you were working:
+
+{issues}
+
+They are part of the backlog, like the issues already there: read each one and resolve it, and record the resolution in its file (ISSUES/README.md). Your work so far is intact; continue from the repository's current state. Check QUESTIONS.md for new answers from the product owner.

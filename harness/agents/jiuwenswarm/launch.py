@@ -52,6 +52,8 @@ from jiuwenswarm_sdk.client import Client  # noqa: E402
 PROTOCOL_DIR = Path(__file__).resolve().parent.parent / "protocol"
 CONTINUE_PROMPT = (PROTOCOL_DIR / "continue.txt").read_text().strip()
 RECHECK_PROMPT = (PROTOCOL_DIR / "recheck.txt").read_text().strip()
+sys.path.insert(0, str(PROTOCOL_DIR))
+import notices  # noqa: E402  (new issues filed during the run, delivered as prompts)
 
 
 def log(event, **f):
@@ -161,7 +163,7 @@ async def answer_interaction(record):
 
 # Session id of the run in progress, learned from the event stream as soon as
 # the runtime announces it, so a crash or chaos kill can still be resumed.
-CURRENT = {"session": ""}
+CURRENT = {"session": "", "running": False}
 STREAMING_EVENTS = {"chat.reasoning", "chat.delta"}
 STREAM_COUNTS = {}
 
@@ -251,24 +253,30 @@ def main():
     setup()
     import threading
     threading.Thread(target=chaos_watchdog, daemon=True).start()
+    threading.Thread(target=notices.watch, daemon=True, kwargs=dict(
+        traj=TRAJ, log=log, running=lambda: CURRENT["running"], kill=kill_descendants,
+        max_wait=float(os.environ.get("GB_NOTICE_MAX_WAIT_SEC", "1800")))).start()
     session = STATE.read_text().strip() if STATE.exists() else ""
     log("adapter.start", arm=os.environ.get("GB_ARM"), resume_session=session)
     fail_streak = 0
     last_done = False
     while True:
+        notice = notices.take(TRAJ, log)
         if not session:
-            prompt = (WORK / "TASK.md").read_text()
+            prompt = (WORK / "TASK.md").read_text() + (f"\n\n{notice}" if notice else "")
         else:
-            prompt = RECHECK_PROMPT if last_done else CONTINUE_PROMPT
+            prompt = notice or (RECHECK_PROMPT if last_done else CONTINUE_PROMPT)
         events_path = TRAJ / f"jw_events_{int(time.time())}.jsonl"
         CURRENT["session"] = session
         STREAM_COUNTS.clear()
         sub = WORK / "SUBMISSION.md"
         sub_before = sub.stat().st_mtime if sub.exists() else 0.0
+        CURRENT["running"] = True
         try:
             result = asyncio.run(one_run(session, prompt, events_path))
         except Exception as e:  # transport/protocol errors, or the child was killed
             result = {"status": "adapter_error", "exit_code": -1, "error": repr(e)[:500]}
+        CURRENT["running"] = False
         sid = result.get("session_id") or CURRENT["session"] or session
         recovered = bool(sid) and not result.get("session_id")
         if sid:
@@ -283,6 +291,13 @@ def main():
         log("invocation.end", status=result.get("status"), exit_code=result.get("exit_code"),
             session=session, session_recovered=recovered, done=last_done, usage=result.get("usage"),
             error=result.get("error"), events=events_path.name, streamed=dict(STREAM_COUNTS))
+        if (TRAJ / notices.INTERRUPT_FLAG).exists():
+            # stopped by the adapter to deliver new issues: not a failure; resume at once
+            log("invocation.interrupted_for_notice", session=session)
+            time.sleep(1)
+            continue
+        if last_done:
+            notices.idle(log)
         if not ok:
             fail_streak += 1
             if fail_streak >= 3:

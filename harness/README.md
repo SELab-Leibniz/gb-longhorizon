@@ -35,7 +35,7 @@ harness/
   orchestrator/           po_agent.py (used by the PO sidecar), run.py + stub_agent.py for local dry runs
   ref/                    SameBoy reference runner (goldens; built into the sandbox for gb-oracle)
   oracle/gb-oracle        the agent's reference CLI: SameBoy with the `gb` interface
-  showcase/               planted bugs, hidden backlog checks (tickets_conformance.py), validation, stub tools
+  showcase/               planted bugs, hidden backlog checks (tickets_conformance.py), issue waves (waves/), validation, stub tools
   scripts/
     fetch_assets.sh       download Pan Docs, opcode table, test ROMs, homebrew
     vendor.sh             vendor crates and flip cargo to offline

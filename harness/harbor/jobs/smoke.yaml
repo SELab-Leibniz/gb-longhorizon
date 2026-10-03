@@ -1,6 +1,6 @@
 # 20-minute smoke test of the whole stack (image build, egress, PO sidecar,
 # adapter loop, chaos kill at minute 8, verifier). Run this first.
-#   harbor run -c harness/harbor/jobs/smoke.yaml
+#   GB_WAVE_TIME_SCALE=0.0069 harbor run -c harness/harbor/jobs/smoke.yaml
 job_name: gb-smoke
 jobs_dir: jobs
 n_attempts: 1
@@ -19,6 +19,7 @@ agents:
     kwargs:
       run_seconds: 1200
       chaos_after_sec: 480
+      notice_max_wait_sec: 180   # with GB_WAVE_TIME_SCALE=0.0069 the waves come at ~2/5/10/15 min
     override_timeout_sec: 1500
     override_setup_timeout_sec: 600
 tasks:

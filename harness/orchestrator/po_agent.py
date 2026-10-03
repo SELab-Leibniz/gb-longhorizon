@@ -60,25 +60,47 @@ class ProductOwner:
         self.poll_sec = poll_sec
         self.api_key = os.environ.get("GB_PO_API_KEY", "")
         self.base_url = os.environ.get("GB_PO_BASE_URL", "https://api.deepseek.com/v1").rstrip("/")
+        self.released_waves: list[int] = []
+        self.build_system()
+        self.po_log = run_dir / "po_log.jsonl"
+        self.answered = 0
+
+    def build_system(self):
+        """The product owner's knowledge: persona, hidden decisions, the GEP, the
+        backlog and TASK.md — limited to the issue waves filed so far, so it can
+        never mention an issue the engineer has not seen."""
         persona = (HARNESS / "PRODUCT_OWNER.md").read_text()
         spec = (HARNESS / "HIDDEN_SPEC.md").read_text()
         # notes for the people running the study are not the product owner's business
         spec = re.sub(r"\n## For the study.*?(?=\n## |\Z)", "\n", spec, flags=re.S)
+        # decisions on issues of waves not filed yet
+        spec = re.sub(r"\n## Backlog decisions — wave (\d+)\n.*?(?=\n## |\Z)",
+                      lambda m: m.group(0) if int(m.group(1)) in self.released_waves else "\n", spec, flags=re.S)
         # The specification the agent also has (repo root locally, /po in the sidecar).
         gep = next((p for p in (HARNESS / "GEP-0001.md", HARNESS.parent / "GEP-0001.md") if p.exists()), None)
         if gep is not None:
             spec += "\n\n=== THE SPECIFICATION THE ENGINEER HAS (GEP-0001.md) ===\n" + gep.read_text()
+        files = []
         issues = next((d for d in (HARNESS / "ISSUES", HARNESS.parent / "ISSUES") if d.is_dir()), None)
         if issues is not None:   # the backlog as handed over (the engineer appends resolutions to its copy)
-            spec += "\n\n=== THE ISSUE BACKLOG THE ENGINEER HAS (ISSUES/) ===\n" + "\n\n".join(
-                f.read_text() for f in sorted(issues.glob("[0-9]*.md")))
+            files += sorted(issues.glob("[0-9]*.md"))
+        waves = next((d for d in (HARNESS / "waves", HARNESS / "showcase" / "waves") if d.is_dir()), None)
+        if waves is not None:    # issues filed during the run, once released
+            for w in sorted(self.released_waves):
+                files += sorted((waves / f"w{w}").glob("[0-9]*.md"))
+        if files:
+            spec += "\n\n=== THE ISSUE BACKLOG THE ENGINEER HAS (ISSUES/) ===\n" + "\n\n".join(f.read_text() for f in files)
         brief = HARNESS / "AGENT_BRIEF.md"
         if brief.exists():   # the engineer's TASK.md: how the run works and how it is evaluated
             spec += ("\n\n=== THE ENGINEER'S TASK.md ===\n"
                      + brief.read_text().split("\n---\n", 1)[-1])
         self.system = SYSTEM_TEMPLATE.format(persona=persona, spec=spec)
-        self.po_log = run_dir / "po_log.jsonl"
-        self.answered = 0
+
+    def release_wave(self, wave: int):
+        """A wave of issues was filed: the product owner now knows it and its decisions."""
+        if wave not in self.released_waves:
+            self.released_waves.append(wave)
+            self.build_system()
 
     # ---- LLM --------------------------------------------------------------
 

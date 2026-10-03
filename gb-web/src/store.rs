@@ -232,7 +232,7 @@ impl Game {
         let mut playable = None;
         let mut added = None;
         for line in text.lines() {
-            let Some((k, v)) = line.split_once('=') else {
+            let Some((k, v)) = line.rsplit_once('=') else {
                 continue;
             };
             match k {
@@ -371,11 +371,10 @@ impl Store {
         fs::read(self.rom_path(id)).ok()
     }
 
-    /// Delete a game and its save.
+    /// Delete a game.
     pub fn delete(&self, id: &str) -> io::Result<()> {
         remove_if_exists(&self.meta_path(id))?;
         remove_if_exists(&self.rom_path(id))?;
-        remove_if_exists(&self.save_path(id))?;
         Ok(())
     }
 

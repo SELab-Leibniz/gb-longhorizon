@@ -41,11 +41,9 @@ except ImportError:
 
 ALLOWED_HOSTS = {"api.deepseek.com"}
 PHASES = ["core", "cgb", "ppu", "tooling", "portability", "library", "front_end", "tickets", "decisions"]
-# hidden check -> the issue that reports it
-TICKET_ISSUE = {"T01": "103", "T02": "111", "T03": "105", "T04": "114", "T05": "101", "T06": "108", "T07": "117",
-                "T08": "120", "T09": "112", "T10": "106", "T11": "118", "T12": "115", "T13": "109"}
 # backlog items that need (or rule on) a product decision -> their hidden check (None: covered by regular checks)
-DECISION_ISSUES = {"107": "P1", "119": "P2", "102": "P3", "110": "P4", "116": "P5", "121": "P6", "104": "P7", "113": None}
+DECISION_ISSUES = {"108": "P1", "109": "P4", "110": "P7", "111": None, "114": "P3", "115": "P5",
+                   "118": "P2", "119": "P6", "122": "P8", "124": "P9"}
 
 
 def load(p: Path, default=None):
@@ -249,9 +247,13 @@ def trial_row(trial: Path):
 def showcase(trial: Path, agent: str, traj: Path):
     tk = load(trial / "verifier/tickets.json", {}) or {}
     iss = load(trial / "verifier/issues.json", {}) or {}
+    waves = load(trial / "verifier/waves.json", {}) or {}
     hist = repo_history(trial)
     po = product_owner(trial)
     checks = {k: v["ok"] for block in tk.values() for k, v in block.get("checks", {}).items()}
+    counted = {0} | set(waves.get("delivered", []))
+    wave_of = {k: v.get("wave", 0) for block in tk.values() for k, v in block.get("checks", {}).items()}
+    checks = {k: ok for k, ok in checks.items() if wave_of.get(k, 0) in counted}   # only issues the agent was told about
     asked = po["decision_issues_asked"]
     first_web = (hist or {}).get("first_library_commit")
     before = sorted(n for n, t in asked.items()
@@ -260,6 +262,9 @@ def showcase(trial: Path, agent: str, traj: Path):
     fix_hours = sorted(b["changed_at_h"] for b in ((hist or {}).get("bugs") or {}).values() if b["changed_at_h"] is not None)
     return {
         "tickets": checks, "issues_resolved": iss.get("resolved"), "issues_total": iss.get("total"),
+        "bugs_total": sum(1 for k in checks if k.startswith("T")),
+        "decisions_total": sum(1 for k in checks if k.startswith("P")),
+        "waves": waves,
         "bugs_fixed": sorted(k for k, ok in checks.items() if k.startswith("T") and ok),
         "bugs_changed_at_planted_line": fixed_at_site,
         "bug_change_hours": fix_hours,
@@ -317,25 +322,29 @@ def main():
         print(f"| {agent} | {len(rs)} | {statistics.mean(rew):.3f} | {sd:.3f} | {min(rew):.3f} | {max(rew):.3f} | "
               + " | ".join(f"{m:.2f}" for m in means) + " |")
     print("\n## Showcase diagnostics (reported, not scored)\n")
-    print("| trial | bugs fixed /13 | at planted line | hours to change (median) | decisions /7 | "
-          "decision issues asked /8 | asked before 1st library commit | issues resolved | notes files | "
+    print("| trial | waves delivered | bugs fixed | at planted line | hours to change (median) | decisions | "
+          "decision issues asked | asked before 1st library commit | issues resolved | notes files | "
           "tests added | gb-oracle calls | compactions | sub-agents |")
-    print("|" + "---|" * 13)
+    print("|" + "---|" * 14)
     for r in rows:
         d = r["showcase"]
         hrs = d["bug_change_hours"]
         if not d["tickets"]:      # not a showcase trial (no planted bugs, no hidden backlog checks)
-            print(f"| {r['job']}/{r['trial']} | n/a | n/a | n/a | n/a | n/a | n/a | n/a | {len(d['notes_files'] or [])} | "
+            print(f"| {r['job']}/{r['trial']} | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | {len(d['notes_files'] or [])} | "
                   f"{d['tests_added']} | {d['oracle_calls']} | {d['compactions']} | {d['sub_agents']} |")
             continue
-        print(f"| {r['job']}/{r['trial']} | {len(d['bugs_fixed'])} | {len(d['bugs_changed_at_planted_line'])} | "
-              f"{fmt(statistics.median(hrs), 1) if hrs else '–'} | {len(d['decisions_passed'])} | "
+        w = d["waves"] or {}
+        dl = w.get("deliveries") or {}
+        wv = (f"{len(w.get('delivered', []))}/{len(w.get('released', []))}"
+              + (" (" + ", ".join(f"w{k}: {v.get('method')} +{v.get('delay_sec')}s" for k, v in sorted(dl.items())) + ")" if dl else ""))
+        print(f"| {r['job']}/{r['trial']} | {wv} | {len(d['bugs_fixed'])}/{d['bugs_total']} | {len(d['bugs_changed_at_planted_line'])} | "
+              f"{fmt(statistics.median(hrs), 1) if hrs else '–'} | {len(d['decisions_passed'])}/{d['decisions_total']} | "
               f"{len(d['decision_issues_asked'])} ({','.join('#' + n for n in d['decision_issues_asked']) or '–'}) | "
               f"{len(d['asked_before_first_library_commit'])} | {fmt(d['issues_resolved'])}/{fmt(d['issues_total'])} | "
               f"{len(d['notes_files'] or [])} | {d['tests_added']} | {d['oracle_calls']} | {d['compactions']} | {d['sub_agents']} |")
-    print("\nBugs: hidden checks T01-T13 (ISSUES #101-#120). 'At planted line': the planted line is gone from the "
-          "graded commit; hours: when it changed. Decisions: hidden checks P1-P7 (#107, #119, #102, #110, #116, #121, #104); "
-          "#113 (colour correction) is covered by the regular screenshot and player checks.")
+    print("\nOnly issues the agent was told about count: wave 0 and every delivered wave (how: between invocations, "
+          "after a commit, or on timeout; +seconds after release). Bugs: hidden T checks; 'at planted line': the planted "
+          "line is gone from the graded commit; hours: when it changed. Decisions: hidden P checks (HIDDEN_SPEC.md).")
     for r in rows:
         if r["egress"].get("blocked_attempts"):
             print(f"\nnote: {r['trial']} tried to reach blocked hosts: {', '.join(r['egress']['blocked_attempts'][:8])}")

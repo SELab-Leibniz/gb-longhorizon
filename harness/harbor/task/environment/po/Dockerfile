@@ -9,5 +9,6 @@ WORKDIR /po
 # and orchestrator/po_agent.py
 COPY GEP-0001.md AGENT_BRIEF.md HIDDEN_SPEC.md PRODUCT_OWNER.md po_agent.py sidecar.py ./
 COPY ISSUES ./ISSUES
+COPY waves ./waves
 RUN git config --global --add safe.directory /work
 CMD ["python3", "-u", "/po/sidecar.py"]

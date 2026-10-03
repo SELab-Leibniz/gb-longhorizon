@@ -11,6 +11,15 @@ the same text, delivered the same way:
   previous invocation reported the work complete (said `DONE` or rewrote
   `SUBMISSION.md`).
 * **Pause** before a recheck: 180 s; before a continue: 5 s.
+* **New issues** filed during the run (the showcase's backlog waves) are
+  delivered by `notices.py`, the same code in every adapter: the next prompt
+  is `new_issues.txt` listing them (instead of continue/recheck). A running
+  invocation is interrupted for it at the first commit after the filing, or
+  `GB_NOTICE_MAX_WAIT_SEC` after it at the latest, and the same session is
+  resumed; that interruption is not counted as a failure. Every delivery is
+  recorded in `/notices/wave-N.delivered.json`. When an invocation ends with
+  the work reported complete, the adapter tells the sidecar (`notices.py
+  idle`), which may file the next wave early.
 
 Per-agent settings are limited to what a headless, offline, unattended run
 needs, and each has an equivalent in the other adapter:

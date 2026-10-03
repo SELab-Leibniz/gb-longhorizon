@@ -58,3 +58,5 @@ __pycache__/
 /harness/harbor/task/tests/*.js
 /harness/harbor/task/environment/po/sidecar_po.py
 /roms/games-cgb/
+/harness/harbor/task/environment/po/ISSUES/
+/harness/harbor/task/environment/po/waves/

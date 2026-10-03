@@ -36,8 +36,7 @@ pub enum Model {
 }
 
 impl Model {
-    /// The model a cartridge asks for: CGB if header byte 0x143 has bit 7 set
-    /// (0x80 = works on both, 0xC0 = CGB only), otherwise DMG.
+    /// The model a cartridge asks for (`--model auto`, GEP 1 Appendix D.6).
     pub fn for_rom(rom: &[u8]) -> Model {
         match rom.get(0x143) {
             Some(flag) if *flag == 0xC0 => Model::Cgb,

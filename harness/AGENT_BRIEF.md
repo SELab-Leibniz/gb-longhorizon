@@ -27,9 +27,10 @@ The previous team got a long way, but left two kinds of unfinished work:
    `throw new Error("not implemented: ...")` in the player's JavaScript.
    Until they are written, most of the emulator, the tools and the web
    application do not work.
-2. **The issue backlog** in `ISSUES/`: 21 reports from users, QA,
-   developers and the product side. Reporters describe what they saw, not
-   the cause, and are sometimes wrong about what the right behaviour is.
+2. **The issue backlog** in `ISSUES/`: reports from users, QA, developers
+   and the product side. Reporters describe what they saw, not the cause,
+   and are sometimes wrong about what the right behaviour is. The backlog
+   keeps growing while you work (below).
 
 Finish the release: implement what is missing so the platform meets GEP 1,
 resolve every issue in the backlog, and keep everything that works working.
@@ -58,6 +59,11 @@ is in `docs/`; test ROMs and games are in `roms/`.
   `wasm32-unknown-unknown` targets; Node.js 18; Chromium (headless);
   Python 3 with the `websocket` module; git, ripgrep, cmake, a C toolchain.
   Nothing else can be installed.
+* **The backlog grows.** New issues are filed in `ISSUES/` during the run, as
+  they are reported. Each time, your next prompt lists them. If you are in
+  the middle of something then, you are stopped and resumed in the same
+  session with that prompt; your files and commits are untouched — so commit
+  often.
 * **Reference emulator:** `gb-oracle` runs a ROM on SameBoy, a mature and
   accurate emulator, with the `gb` CLI's options and output (`--frames`,
   `--model`, `--input-script`, `--hash`, `--dump-frame`, `--dump-every`,
@@ -105,6 +111,8 @@ earns partial credit:
 | Web front end and player | GEP 1 §8 | 5 % |
 | Bugs in the backlog, fixed | `ISSUES/` | 20 % |
 | Requests in the backlog, handled as the product owner decided | `ISSUES/` | 10 % |
+
+An issue filed during the run counts once it has been announced to you.
 | `clippy` and `rustfmt` clean over the whole workspace | R-BASE-4 | 2 % |
 
 * The whole score is 0 if `gb-core` or `gb-cli` does not build, or if a

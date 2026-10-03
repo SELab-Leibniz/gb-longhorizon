@@ -1,0 +1,26 @@
+# 6-hour calibration pilot of the v2 showcase (jiuwenswarm). The issue waves are
+# scaled to the run (4/12/24/36 h x 0.125 = 0.5/1.5/3/4.5 h), so run it as
+#   GB_WAVE_TIME_SCALE=0.125 harbor run -c harness/harbor/jobs/pilot-6h-v2-jiuwenswarm.yaml -y
+job_name: gb-pilot-6h-v2-jiuwenswarm
+jobs_dir: jobs
+n_attempts: 1
+orchestrator:
+  type: local
+  n_concurrent_trials: 1
+environment:
+  type: docker
+  force_build: false
+  delete: false
+agents:
+  - import_path: gb_agents:JiuwenSwarmAgent
+    model_name: deepseek/deepseek-flash
+    env:
+      API_KEY: ${DEEPSEEK_API_KEY}
+    kwargs:
+      run_seconds: 21600
+      chaos_after_sec: 0
+      notice_max_wait_sec: 600
+    override_timeout_sec: 22800
+    override_setup_timeout_sec: 900
+tasks:
+  - path: harness/harbor/task

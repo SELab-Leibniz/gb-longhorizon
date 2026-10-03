@@ -27,7 +27,7 @@ fn adler32(data: &[u8]) -> u32 {
 /// Wrap `data` in a zlib stream using stored deflate blocks.
 fn zlib_stored(data: &[u8]) -> Vec<u8> {
     let mut out = vec![0x78, 0x01];
-    let mut chunks = data.chunks(65535).peekable();
+    let mut chunks = data.chunks(65536).peekable();
     // `data` is never empty for a frame, but handle it defensively.
     if data.is_empty() {
         out.extend_from_slice(&[0x01, 0x00, 0x00, 0xFF, 0xFF]);

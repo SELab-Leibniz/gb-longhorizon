@@ -58,8 +58,8 @@ fn buttons_from_mask(mask: u8) -> Buttons {
         left: mask & 0x02 != 0,
         up: mask & 0x04 != 0,
         down: mask & 0x08 != 0,
-        a: mask & 0x20 != 0,
-        b: mask & 0x10 != 0,
+        a: mask & 0x10 != 0,
+        b: mask & 0x20 != 0,
         select: mask & 0x40 != 0,
         start: mask & 0x80 != 0,
     }

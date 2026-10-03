@@ -74,7 +74,7 @@ impl Joypad {
         let before = self.direction_bits();
         self.buttons = buttons;
         let after = self.direction_bits();
-        if before & !after != 0 {
+        if after & !before != 0 {
             self.pending_irq = true;
             0x10
         } else {

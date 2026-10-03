@@ -87,7 +87,20 @@ for f in sorted(d.glob("[0-9]*.md")) if d.is_dir() else []:
     res[f.name.split("-")[0]] = m.group(1).strip()[:300] if m else None
 print(json.dumps({"resolved": sum(v is not None for v in res.values()), "total": len(res), "issues": res}, indent=2))
 PYISSUES
-python3 - "$OUT/results.json" "$OUT/reward.json" "$OUT/tickets.json" "$OUT/issues.json" <<'PY'
+# Which issue waves were filed and delivered to the agent (harness/agents/protocol/notices.py)
+python3 - > "$OUT/waves.json" <<'PYWAVES'
+import json
+from pathlib import Path
+n = Path("/notices")
+rel = {} if not n.is_dir() else {json.loads(f.read_text())["wave"]: json.loads(f.read_text())
+                                 for f in n.glob("wave-*.json") if not f.name.endswith(".delivered.json")}
+dlv = {} if not n.is_dir() else {json.loads(f.read_text())["wave"]: json.loads(f.read_text())
+                                 for f in n.glob("wave-*.delivered.json")}
+print(json.dumps({"released": sorted(rel), "delivered": sorted(dlv),
+                  "deliveries": {str(k): {kk: v.get(kk) for kk in ("method", "delay_sec", "released_at", "delivered_at")}
+                                 for k, v in dlv.items()}}, indent=2))
+PYWAVES
+python3 - "$OUT/results.json" "$OUT/reward.json" "$OUT/tickets.json" "$OUT/issues.json" "$OUT/waves.json" <<'PY'
 import json, sys
 try:
     r = json.load(open(sys.argv[1]))
@@ -101,6 +114,16 @@ try:
     iss = json.load(open(sys.argv[4]))
 except Exception:
     iss = {}
+try:
+    waves = json.load(open(sys.argv[5]))
+except Exception:
+    waves = {}
+# Only issues the agent was told about count: wave 0 (in the repository from the
+# start) and every wave whose notice was delivered as a prompt.
+counted = {0} | set(waves.get("delivered", []))
+def wave_score(block):
+    checks = [c for c in (block or {}).get("checks", {}).values() if c.get("wave", 0) in counted]
+    return (sum(1 for c in checks if c.get("ok")) / len(checks)) if checks else 0.0
 def rate(d):
     t = d.get("total", 0); return (d.get("passed", 0) / t) if t else 0.0
 t0 = r.get("tier0", {}); t1 = r.get("tier1", {}); t2 = r.get("tier2", {}); t3 = r.get("tier3", {}); t4 = r.get("tier4", {})
@@ -148,9 +171,11 @@ m = {
     "web_api":            t9.get("api", {}).get("score", 0.0),   # hidden 41-check API suite incl. Open Issues
     "web_ui":             t9.get("ui", {}).get("score", 0.0),    # headless-Chromium end-to-end, 21 checks
     # --- showcase backlog (ISSUES/) ---
-    "tickets":            tk.get("tickets", {}).get("score", 0.0),    # T01-T13: the planted bugs, fixed
-    "decisions":          tk.get("decisions", {}).get("score", 0.0),  # P1-P6: backlog items as the product owner decided
+    "tickets":            wave_score(tk.get("tickets")),    # planted bugs fixed (issues of delivered waves)
+    "decisions":          wave_score(tk.get("decisions")),  # requests handled as the product owner decided (delivered waves)
 }
+m["waves_released"] = len(waves.get("released", []))
+m["waves_delivered"] = len(waves.get("delivered", []))
 # informational: issues with a `## Resolution` in the graded commit
 m["issues_resolved"] = round(iss.get("resolved", 0) / iss["total"], 4) if iss.get("total") else 0.0
 # informational only (manual-review screenshots): fraction of ROMs that booted and rendered

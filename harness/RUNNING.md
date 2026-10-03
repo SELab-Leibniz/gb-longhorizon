@@ -141,6 +141,24 @@ the cache. Then check, in `jobs/gb-smoke/<trial>/` (and `jobs/gb-smoke-jiuwenswa
 `harness/scripts/summarize.py jobs/gb-smoke jobs/gb-smoke-jiuwenswarm` prints
 the same in one table (valid = ✓✓).
 
+### Showcase-v2: issue waves
+
+On `showcase-v2` the backlog is filed in waves during the run (`SHOWCASE.md`,
+"How new issues reach the agent"). For short runs, scale the schedule with
+an environment variable read by the product-owner sidecar, and pass the
+longest delivery wait as an agent kwarg (already set in the job files):
+
+| Run | Command |
+|---|---|
+| smoke (20 min) | `GB_WAVE_TIME_SCALE=0.0069 harbor run -c harness/harbor/jobs/smoke.yaml -y` — waves at ~2, 5, 10, 15 min |
+| 6-hour pilot | `GB_WAVE_TIME_SCALE=0.125 GB_SNAPSHOT_HOURS=1 harbor run -c harness/harbor/jobs/pilot-6h-v2-icode.yaml -y` (and `-jiuwenswarm`) — waves at 0.5, 1.5, 3, 4.5 h |
+| 48-hour run | no scaling: waves at 4, 12, 24, 36 h |
+
+Check delivery in `artifacts/po-artifacts/events.jsonl`: one `wave.released`
+and one `wave.delivered` per wave, with the delivery `method`
+(`between_invocations`, `after_commit` or `timeout`) and `delay_sec`. The
+verifier's `waves.json` lists the delivered waves, and only those are scored.
+
 ## 4. The real runs (≈ 50 hours)
 
 ```sh

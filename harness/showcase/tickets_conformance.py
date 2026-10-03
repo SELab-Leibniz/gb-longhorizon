@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Hidden checks for the v2 showcase tickets (harness/tickets/) and product decisions.
+"""Hidden checks for the v2 showcase backlog (ISSUES/ and the waves in
+harness/showcase/waves/): planted bugs (T..) and product decisions (P..).
 
     tickets_conformance.py CHECKOUT --roms ROMS --golden-trace DIR
 
@@ -7,30 +8,44 @@ Expects the agent's release binaries in CHECKOUT/target/release (gb, gb-server,
 gb-trace, gb-web) and the WebAssembly module at
 CHECKOUT/target/wasm32-unknown-unknown/release/gb_wasm.wasm (missing pieces
 just fail their checks). Prints one JSON line:
-{"tickets": {"score", "passed", "total", "checks"}, "decisions": {...}}.
+{"tickets": {"score", "passed", "total", "checks"}, "decisions": {...}}; every
+check carries its issue number and the wave that files the issue, so the
+verifier can count only the waves that were delivered to the agent.
 
-Every bug check passes on the unbugged reference code and fails with exactly
-that bug planted (validate_tickets.sh).
+Every bug check passes on the unbugged reference code, fails with exactly that
+bug planted, and passes with only that bug fixed (validate_tickets.sh).
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
-import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from romgen import make_rom, joypad_rom, fix_checksums as _fix_checksums  # noqa: E402
+from romgen import make_rom, fix_checksums as _fix_checksums  # noqa: E402
 
-TICKETS = ["T01", "T02", "T03", "T04", "T05", "T06", "T07", "T08", "T09", "T10", "T11", "T12", "T13"]
-DECISIONS = ["P1", "P2", "P3", "P4", "P5", "P6", "P7"]
+# check -> (issue number, wave that files the issue)
+TICKETS = {"T13": ("101", 0), "T11": ("102", 0), "T01": ("103", 0), "T04": ("104", 0), "T06": ("105", 0),
+           "T07": ("106", 0), "T08": ("107", 0),
+           "T14": ("112", 1), "T15": ("113", 1),
+           "T16": ("116", 2), "T17": ("117", 2),
+           "T18": ("120", 3), "T19": ("121", 3),
+           "T20": ("123", 4)}
+DECISIONS = {"P1": ("108", 0), "P4": ("109", 0), "P7": ("110", 0),
+             "P3": ("114", 1), "P5": ("115", 1),
+             "P2": ("118", 2), "P6": ("119", 2),
+             "P8": ("122", 3),
+             "P9": ("124", 4)}
 PROFILE_ROM = "06-ld r,r"
 RESULTS: dict = {}
 
@@ -53,6 +68,11 @@ def run(cmd, timeout=300, **kw):
         return 127, "", str(e)
 
 
+def sha256(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+# ------------------------------------------------------------ crafted ROMs
 def irq_priority_rom() -> bytes:
     """Requests VBlank and Timer together, then enables interrupts; each vector
     loops on itself, so PC shows which interrupt was serviced first."""
@@ -79,10 +99,19 @@ def mbc5_banks_rom() -> bytes:
     return _fix_checksums(rom)
 
 
-def wrap_rom() -> bytes:
-    """A cartridge whose first two bytes ($C3 $A7) differ from anything at the top of memory."""
-    rom = bytearray(make_rom(b"WRAP", tag=b"wrap"))
-    rom[0x0000:0x0002] = bytes([0xC3, 0xA7])
+def halt_key_rom() -> bytes:
+    """Waits for a key with HALT and the joypad interrupt (IME off), the usual
+    'press a key' loop: white screen until it wakes, black after."""
+    rom = bytearray(make_rom(b"HALTKEY", tag=b"halt-key"))
+    code = bytes([0x3E, 0x81, 0xE0, 0x40,   # LD A,$81; LDH ($40),A   LCD on, BG on
+                  0x3E, 0x10, 0xE0, 0x00,   # LD A,$10; LDH ($00),A   select the action buttons
+                  0xAF, 0xE0, 0x47,         # XOR A; LDH ($47),A      BGP = 0: all white
+                  0xE0, 0x0F,               # LDH ($0F),A             IF = 0
+                  0x3E, 0x10, 0xE0, 0xFF,   # LD A,$10; LDH ($FF),A   IE = joypad
+                  0xF3, 0x76, 0x00,         # DI; HALT; NOP
+                  0x3E, 0xFF, 0xE0, 0x47,   # LD A,$FF; LDH ($47),A   BGP = $FF: all black
+                  0x18, 0xFE])              # JR -2
+    rom[0x150:0x150 + len(code)] = code
     return _fix_checksums(rom)
 
 
@@ -100,9 +129,52 @@ def mooneye_pass(gb, rom):
     return run([gb, "--rom", str(rom), "--frames", "1200", "--mooneye"])[0] == 10
 
 
-def blargg_pass(gb, rom):
-    code, out, err = run([gb, "--rom", str(rom), "--frames", "7200", "--serial-stdout"], timeout=600)
-    return "Passed" in out
+def http(port, method, path, body=b"", headers=None, stall_after=None, stall_sec=0.0, timeout=60):
+    """A raw HTTP/1.1 exchange; optionally stalls for `stall_sec` after sending
+    `stall_after` bytes of the body (a slow uplink). Returns (status, headers, body)."""
+    sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+    head = (f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Length: {len(body)}\r\n"
+            + "".join(f"{k}: {v}\r\n" for k, v in (headers or {}).items()) + "\r\n").encode()
+    try:
+        if stall_after is None:
+            sock.sendall(head + body)
+        else:
+            sock.sendall(head + body[:stall_after])
+            time.sleep(stall_sec)
+            sock.sendall(body[stall_after:])
+    except OSError:
+        pass                                   # the server may answer early and close
+    data = b""
+    try:
+        while True:
+            chunk = sock.recv(1 << 16)
+            if not chunk:
+                break
+            data += chunk
+    except OSError:
+        pass
+    sock.close()
+    head_b, _, rest = data.partition(b"\r\n\r\n")
+    m = re.match(rb"HTTP/1\.[01] (\d{3})", head_b)
+    hdrs = {}
+    for line in head_b.split(b"\r\n")[1:]:
+        k, _, v = line.decode("latin-1").partition(":")
+        hdrs[k.strip().lower()] = v.strip()
+    return (int(m.group(1)) if m else None), hdrs, rest
+
+
+def png_idat(data: bytes) -> bytes:
+    """Concatenated IDAT payload of a PNG (chunk CRCs checked)."""
+    pos, idat = 8, b""
+    while pos < len(data):
+        n = int.from_bytes(data[pos:pos + 4], "big")
+        kind, body = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + n]
+        if zlib.crc32(kind + body) & 0xFFFFFFFF != int.from_bytes(data[pos + 8 + n:pos + 12 + n], "big"):
+            raise ValueError(f"bad CRC in {kind!r}")
+        if kind == b"IDAT":
+            idat += body
+        pos += 12 + n
+    return idat
 
 
 # ------------------------------------------------------------------ main
@@ -119,10 +191,7 @@ def main():
     td = Path(tempfile.mkdtemp(prefix="gbtickets-"))
     individual = R / "test/blargg/cpu_instrs/individual"
 
-    # --- emulator core tickets (via the frozen `gb` CLI)
-    check("T02", lambda: (blargg_pass(gb, individual / "04-op r,imm.gb") and blargg_pass(gb, individual / "09-op r,r.gb"),
-                          "cpu_instrs 04 + 09"))
-    check("T03", lambda: (blargg_pass(gb, individual / "01-special.gb"), "cpu_instrs 01-special"))
+    # ================================================== emulator core (frozen `gb` CLI)
     check("T11", lambda: (all(mooneye_pass(gb, R / f"test/mooneye/emulator-only/mbc1/{n}.gb") for n in ("rom_1Mb", "rom_2Mb")),
                           "mbc1/rom_1Mb + rom_2Mb"))
 
@@ -132,14 +201,23 @@ def main():
         return auto == cgb and not auto.startswith("exit"), (auto, cgb)
     check("T13", t13)
 
-    # --- debugger-server tickets (register level: independent of the CPU)
+    def t14():   # the joypad interrupt fires on the press (a HALT-until-key loop wakes at once)
+        rom = td / "halt-key.gb"
+        rom.write_bytes(halt_key_rom())
+        script = td / "a-10-30.input"
+        script.write_text("10 A\n30\n")           # A held from frame 10 to frame 30
+        before, held, after = (gb_hash(gb, rom, n, script=script) for n in (5, 20, 40))
+        ok = before != held and held == after and not before.startswith("exit")
+        return ok, {"frame 5 (waiting)": before, "frame 20 (A held)": held, "frame 40 (released)": after}
+    check("T14", t14)
+
+    # ================================================== debugger (gb-server)
     srv = None
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
         from api_conformance import Server as DebugServer
         srv = DebugServer(server_bin, doctor=False)
     except Exception as e:
-        for t in ("T01", "T04", "T05", "T09"):
+        for t in ("T01", "T04"):
             RESULTS[t] = {"ok": False, "detail": f"gb-server: {e}"[:300]}
     if srv:
         try:
@@ -158,27 +236,6 @@ def main():
                 return all(g == w for g, w in got.values()), got
             check("T01", t01)
 
-            def t09():   # GET /memory wraps at $FFFF (distinct bytes at $FFFE, $FFFF, $0000, $0001)
-                rom = td / "wrap.gb"
-                rom.write_bytes(wrap_rom())
-                srv.call("POST", "/load", {"path": str(rom), "model": "dmg"})
-                srv.call("POST", "/memory", {"addr": 0xFFFE, "data": "5a"})
-                srv.call("POST", "/memory", {"addr": 0xFFFF, "data": "1f"})
-                st, mem = srv.call("GET", "/memory?addr=0xFFFE&len=4")
-                return st == 200 and (mem or {}).get("data", "").lower() == "5a1fc3a7", mem
-            check("T09", t09)
-
-            def t05():   # BCPS auto-increment crosses index $1F -> $20
-                st, _ = srv.call("POST", "/load", {"path": str(R / "games-cgb/ucity.gbc"), "model": "cgb"})
-                srv.call("POST", "/memory", {"addr": 0xFF40, "data": "00"})       # LCD off: palette RAM always writable
-                srv.call("POST", "/memory", {"addr": 0xFF68, "data": "9e"})       # auto-increment, index $1E
-                for b in ("11", "22", "33", "44"):
-                    srv.call("POST", "/memory", {"addr": 0xFF69, "data": b})
-                srv.call("POST", "/memory", {"addr": 0xFF68, "data": "20"})
-                st2, mem = srv.call("GET", "/memory?addr=0xFF69&len=1")
-                return st == 200 and mem.get("data", "").lower() == "33", mem
-            check("T05", t05)
-
             def t04():   # VBlank (bit 0) is serviced before Timer (bit 2)
                 rom = td / "irq.gb"
                 rom.write_bytes(irq_priority_rom())
@@ -191,7 +248,7 @@ def main():
         finally:
             srv.stop()
 
-    # --- gb-trace profile tie order (reference profile: equal counts listed by ascending PC)
+    # ================================================== gb-trace profile tie order
     def t08():
         ref = json.loads((a.golden_trace / f"{PROFILE_ROM}.profile.json").read_text())
         want = [(e["pc"], e["count"]) for e in ref["top"]]
@@ -201,71 +258,101 @@ def main():
         return got == want, {"first_diff": next(((g, w) for g, w in zip(got, want) if g != w), None), "n": len(got)}
     check("T08", t08)
 
-    # --- WebAssembly button bits (crafted ROM: buttons -> BGP)
-    def t10():
-        if not wasm.exists() or not shutil.which("node"):
-            return False, "no wasm module or no node"
-        rom = td / "joypad.gb"
-        rom.write_bytes(joypad_rom())
-        res = {}
-        for name, mask in (("A", 0x10), ("B", 0x20)):
-            js = td / "j.js"
-            js.write_text(f"""const fs=require('fs');(async()=>{{const {{instance}}=await WebAssembly.instantiate(fs.readFileSync({json.dumps(str(wasm))}),{{}});
-const e=instance.exports,rom=fs.readFileSync({json.dumps(str(rom))});const p=e.gb_alloc(rom.length);
-new Uint8Array(e.memory.buffer,p,rom.length).set(rom);e.gb_load(p,rom.length,0);e.gb_set_buttons({mask});e.gb_run_frames(3);
-const f=new Uint8Array(e.memory.buffer,e.gb_frame_ptr(),e.gb_frame_len());let h=0xcbf29ce484222325n;
-for(const b of f)h=((h^BigInt(b))*0x100000001b3n)&0xffffffffffffffffn;console.log(h.toString(16).padStart(16,'0'));}})();""")
-            code, out, err = run(["node", str(js)])
-            script = td / f"{name}.input"
-            script.write_text(f"0 {name}\n")
-            res[name] = (out.strip(), gb_hash(gb, rom, 3, "dmg", script))
-        ok = all(w == n and not n.startswith("exit") for w, n in res.values()) and res["A"][1] != res["B"][1]
-        return ok, res
-    check("T10", t10)
-
-    # --- library-service tickets and product decisions (one gb-web instance)
+    # ================================================== library service (gb-web)
+    web_names = [n for n, _ in TICKETS.items() if n in ("T06", "T07", "T15", "T16", "T17", "T18", "T19", "T20")]
     try:
-        from web_conformance import Server as WebServer, upload_raw, is_error
-        web = WebServer(web_bin, td / "lib", [R / "games"], wasm if wasm.exists() else td / "none.wasm")
+        from web_conformance import Server as WebServer, upload_raw, is_error, raw_post
+        start_web = lambda: WebServer(web_bin, td / "lib", [R / "games"], wasm if wasm.exists() else td / "none.wasm")  # noqa: E731
+        web = start_web()
     except Exception as e:
         web = None
-        for t in ("T06", "T07", "T12") + tuple(DECISIONS):
+        for t in web_names + list(DECISIONS):
             RESULTS[t] = {"ok": False, "detail": f"gb-web: {e}"[:300]}
     if web:
         try:
             games = (web.json("GET", "/api/games")[2] or {}).get("games", [])
             by_file = {g["filename"]: g for g in games}
+            octet = {"Content-Type": "application/octet-stream"}
+
+            # --- bugs ---------------------------------------------------------
+            def t15():   # a double quote in a title is escaped in JSON (the listing stays valid)
+                rom = make_rom(b'SAY "HI"', tag=b"t15")
+                st, _, _ = web.req("POST", "/api/games", rom, {**octet, "X-Filename": "say-hi.gb"})
+                st2, _, raw = web.req("GET", "/api/games")
+                try:
+                    listed = json.loads(raw)
+                    titles = [g.get("title") for g in listed.get("games", [])]
+                    ok = st == 201 and 'SAY "HI"' in titles
+                    detail = (st, 'SAY "HI"' in titles)
+                except ValueError as e:
+                    ok, detail = False, f"listing is not valid JSON after the upload: {e}"
+                web.req("DELETE", f"/api/games/{sha256(rom)}")        # leave the library as it was
+                return ok, detail
+            check("T15", t15)
+
+            def t16():   # a '=' in the file name survives storage (the game stays listed)
+                rom = make_rom(b"JAM", tag=b"t16")
+                st, _, _ = web.req("POST", "/api/games", rom, {**octet, "X-Filename": "jam=2024.gb"})
+                gid = sha256(rom)
+                st2, _, g = web.json("GET", f"/api/games/{gid}")
+                ids = [x["id"] for x in (web.json("GET", "/api/games")[2] or {}).get("games", [])]
+                return (st == 201 and st2 == 200 and (g or {}).get("filename") == "jam=2024.gb" and gid in ids,
+                        (st, st2, (g or {}).get("filename"), gid in ids))
+            check("T16", t16)
+
+            def t17():   # deleting a game deletes its save: a re-upload starts without one
+                rom = make_rom(b"SAVEKEEP", cart_type=0x03, ram_code=0x02, tag=b"t17")
+                gid = sha256(rom)
+                st1, _, _ = web.req("POST", "/api/games", rom, {**octet, "X-Filename": "savekeep.gb"})
+                st2, _, _ = web.req("PUT", f"/api/games/{gid}/save", b"\xab" * 8192, octet)
+                st3, _, _ = web.req("DELETE", f"/api/games/{gid}")
+                st4, _, _ = web.req("POST", "/api/games", rom, {**octet, "X-Filename": "savekeep.gb"})
+                st5, _, _ = web.req("GET", f"/api/games/{gid}/save")
+                return (st1, st2, st3, st4, st5) == (201, 204, 204, 201, 404), (st1, st2, st3, st4, st5)
+            check("T17", t17)
+
+            def t18():   # an upload whose body stalls for 2 s mid-way is stored whole
+                rom = make_rom(b"SLOWLINK", tag=b"t18")
+                st, _, body = http(web.port, "POST", "/api/games", rom, {**octet, "X-Filename": "slow.gb"},
+                                   stall_after=8192, stall_sec=2.0)
+                try:
+                    b = json.loads(body)
+                except ValueError:
+                    b = {}
+                return st == 201 and b.get("id") == sha256(rom), (st, b.get("id") == sha256(rom), b.get("code"))
+            check("T18", t18)
+
+            def t19():   # a %XX escape at the very end of the query is decoded ("C++" finds "QUEST C++")
+                rom = make_rom(b"QUEST C++", tag=b"t19")
+                web.req("POST", "/api/games", rom, {**octet, "X-Filename": "quest.gb"})
+                st, _, b = web.json("GET", "/api/games?q=C%2B%2B")
+                got = [g["id"] for g in (b or {}).get("games", [])]
+                return st == 200 and sha256(rom) in got, (st, len(got))
+            check("T19", t19)
 
             def t06():   # PNG screenshots are valid zlib streams (Adler-32)
                 g = by_file["2048.gb"]
                 st, h, data = web.req("GET", f"/api/games/{g['id']}/screenshot.png?frames=5")
-                pos, idat = 8, b""
-                while pos < len(data):
-                    n = int.from_bytes(data[pos:pos + 4], "big")
-                    kind, body = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + n]
-                    if zlib.crc32(kind + body) & 0xFFFFFFFF != int.from_bytes(data[pos + 8 + n:pos + 12 + n], "big"):
-                        return False, f"bad CRC in {kind!r}"
-                    if kind == b"IDAT":
-                        idat += body
-                    pos += 12 + n
-                zlib.decompress(idat)        # raises on a bad Adler-32
+                zlib.decompress(png_idat(data))        # raises on a bad Adler-32
                 return st == 200, "valid PNG"
             check("T06", t06)
 
             def t07():   # $7F in a header title is shown as '?'
                 rom = make_rom(b"AB\x7fCD", tag=b"t07")
                 st, _, b = upload_raw(web, rom, "t07.gb")
-                return st == 201 and b.get("title") == "AB?CD", (st, (b or {}).get("title"))
+                return st == 201 and (b or {}).get("title") == "AB?CD", (st, (b or {}).get("title"))
             check("T07", t07)
 
-            def t12():   # a save must be exactly ram_size bytes
-                g = next(g for g in games if g["battery"] and g["ram_size"] > 0)
-                st, _, b = web.json("PUT", f"/api/games/{g['id']}/save", bytes(g["ram_size"] + 1),
-                                    {"Content-Type": "application/octet-stream"})
-                return st == 400 and is_error(b, "bad_request"), st
-            check("T12", t12)
+            def t20():   # a CGB screenshot (> 64 KiB of pixel data) inflates to the whole image
+                g = by_file["tobudx.gb"]
+                st, h, data = web.req("GET", f"/api/games/{g['id']}/screenshot.png?frames=5&model=cgb")
+                d = zlib.decompressobj(-15)            # raw deflate: block structure only, not the Adler-32
+                pixels = d.decompress(png_idat(data)[2:-4])
+                want = 144 * (1 + 160 * 3)
+                return st == 200 and len(pixels) == want and d.eof, (st, len(pixels), want, d.eof)
+            check("T20", t20)
 
-            # product decisions P1-P6 (harness/HIDDEN_SPEC.md): new behaviour and traps
+            # --- product decisions (harness/HIDDEN_SPEC.md) -------------------
             def p1():    # search also matches the mapper name
                 st, _, b = web.json("GET", "/api/games?q=mbc5")
                 want = sorted(g["id"] for g in games if any("mbc5" in g[k].lower() for k in ("title", "filename", "mapper")))
@@ -275,7 +362,7 @@ for(const b of f)h=((h^BigInt(b))*0x100000001b3n)&0xffffffffffffffffn;console.lo
 
             def p2():    # save downloads are named after the game file, .sav
                 g = next(g for g in games if g["battery"] and g["ram_size"] > 0)
-                web.req("PUT", f"/api/games/{g['id']}/save", bytes(g["ram_size"]), {"Content-Type": "application/octet-stream"})
+                web.req("PUT", f"/api/games/{g['id']}/save", bytes(g["ram_size"]), octet)
                 st, h, data = web.req("GET", f"/api/games/{g['id']}/save")
                 want = g["filename"].rsplit(".", 1)[0] + ".sav"
                 cd = h.get("content-disposition", "")
@@ -286,10 +373,10 @@ for(const b of f)h=((h^BigInt(b))*0x100000001b3n)&0xffffffffffffffffn;console.lo
                 st, _, b = web.json("GET", "/api/stats")
                 now = (web.json("GET", "/api/games")[2] or {}).get("games", [])
                 want = dict(Counter(g["mapper"] for g in now))
-                return st == 200 and b.get("by_mapper") == want, (b or {}).get("by_mapper")
+                return st == 200 and (b or {}).get("by_mapper") == want, (b or {}).get("by_mapper")
             check("P3", p3)
 
-            def p4():    # trap: re-uploading under a new name does not rename (409, unchanged)
+            def p4():    # declined: re-uploading under a new name does not rename (409, unchanged)
                 g = by_file["2048.gb"]
                 rom = web.req("GET", f"/api/games/{g['id']}/rom")[2]
                 st, _, b = upload_raw(web, rom, "2048-renamed.gb")
@@ -297,31 +384,75 @@ for(const b of f)h=((h^BigInt(b))*0x100000001b3n)&0xffffffffffffffffn;console.lo
                 return st == 409 and after.get("filename") == "2048.gb", (st, after.get("filename"))
             check("P4", p4)
 
-            def p5():    # trap: the API's default order stays title-ascending
+            def p5():    # declined: the API's default order stays title-ascending
                 b = web.json("GET", "/api/games")[2] or {}
                 ids = [g["id"] for g in b.get("games", [])]
                 want = [g["id"] for g in sorted(b.get("games", []), key=lambda g: (g["title"].lower(), g["id"]))]
                 return ids == want and ids, "default order"
             check("P5", p5)
 
-            def p6():    # trap: the upload limit stays 8 MiB
-                from web_conformance import raw_post
+            def p6():    # declined: the upload limit stays 8 MiB
                 big = make_rom(b"BIG", cart_type=0x19, size_code=8, tag=b"d6")
-                st, _, b = raw_post(web.port, "/api/games", big + b"\0", {"Content-Type": "application/octet-stream"})
+                st, _, b = raw_post(web.port, "/api/games", big + b"\0", octet)
                 return st == 413, st
             check("P6", p6)
 
-            def p7():    # trap: no Japanese decoding, bytes outside $20-$7E stay '?' (#104, OI-5)
+            def p7():    # ruled out: no Japanese decoding, bytes outside $20-$7E stay '?' (OI-5)
                 rom = make_rom(b"\xb6\xde\xd1 GB", tag=b"p7")
                 st, _, b = upload_raw(web, rom, "kana.gb")
                 return st == 201 and (b or {}).get("title") == "??? GB", (st, (b or {}).get("title"))
             check("P7", p7)
-        finally:
-            web.stop()
 
-    def block(names):
+            def p8():    # favourites: PUT/DELETE /favorite, `favorite` field and filter, persistent
+                nonlocal web
+                g = by_file["2048.gb"]
+                gid = g["id"]
+                res = {}
+                res["put"] = web.req("PUT", f"/api/games/{gid}/favorite")[0]
+                res["field"] = (web.json("GET", f"/api/games/{gid}")[2] or {}).get("favorite")
+                listed = [x["id"] for x in (web.json("GET", "/api/games?favorite=true")[2] or {}).get("games", [])]
+                res["filter_true"] = listed == [gid]
+                others = (web.json("GET", "/api/games?favorite=false")[2] or {}).get("games", [])
+                res["filter_false"] = bool(others) and all(x.get("favorite") is False for x in others) and gid not in [x["id"] for x in others]
+                st, _, b = web.json("GET", "/api/games?favorite=maybe")
+                res["bad_value"] = st == 400 and is_error(b, "bad_request")
+                st, _, b = web.json("PUT", "/api/games/" + "0" * 64 + "/favorite")
+                res["unknown"] = st == 404 and is_error(b, "not_found")
+                web.stop()
+                web = start_web()                          # restart on the same library
+                res["persists"] = (web.json("GET", f"/api/games/{gid}")[2] or {}).get("favorite")
+                res["delete"] = web.req("DELETE", f"/api/games/{gid}/favorite")[0]
+                res["cleared"] = (web.json("GET", f"/api/games/{gid}")[2] or {}).get("favorite")
+                ok = (res["put"] == 204 and res["field"] is True and res["filter_true"] and res["filter_false"]
+                      and res["bad_value"] and res["unknown"] and res["persists"] is True
+                      and res["delete"] == 204 and res["cleared"] is False)
+                return ok, res
+            check("P8", p8)
+
+            def p9():    # library export: GET /api/export, a JSON manifest without ROM data
+                st, h, raw = web.req("GET", "/api/export")
+                b = json.loads(raw)
+                listed = (web.json("GET", "/api/games")[2] or {}).get("games", [])
+                entries = b.get("games", [])
+                keys_ok = all(set(e) == {"id", "title", "filename", "added", "has_save"} for e in entries)
+                order_ok = [e["id"] for e in entries] == [g["id"] for g in sorted(listed, key=lambda g: (g["added"], g["id"]))]
+                saves_ok = all(e["has_save"] == (web.req("GET", f"/api/games/{e['id']}/save")[0] == 200) for e in entries)
+                cd = h.get("content-disposition", "")
+                ok = (st == 200 and h.get("content-type", "").startswith("application/json") and b.get("version") == 1
+                      and 'filename="library.json"' in cd and "attachment" in cd and keys_ok and order_ok and saves_ok
+                      and any(e["has_save"] for e in entries))
+                return ok, {"status": st, "version": b.get("version"), "keys": keys_ok, "order": order_ok,
+                            "has_save": saves_ok, "disposition": cd}
+            check("P9", p9)
+        finally:
+            if web:
+                web.stop()
+
+    def block(spec):
+        names = list(spec)
         for n in names:
             RESULTS.setdefault(n, {"ok": False, "detail": "not reached"})
+            RESULTS[n]["issue"], RESULTS[n]["wave"] = spec[n]
         passed = sum(1 for n in names if RESULTS[n]["ok"])
         return {"score": round(passed / len(names), 4), "passed": passed, "total": len(names),
                 "checks": {n: RESULTS[n] for n in names}}

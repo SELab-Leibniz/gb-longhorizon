@@ -8,11 +8,15 @@
 #     the hidden spec and the PO API key, which main never sees
 #   * `repo`: a named volume for /work so po can read QUESTIONS.md and
 #     append answers; populated from the image on first start
+#   * `notices`: /notices in both, outside the repo: po files a wave of new
+#     issues and leaves a notice there; the agent adapter delivers it as the
+#     agent's next prompt and records the delivery there
 services:
   main:
     networks: [sandbox]
     volumes:
       - repo:/work
+      - notices:/notices
     environment:
       HTTPS_PROXY: http://egress:8888
       HTTP_PROXY: http://egress:8888
@@ -43,11 +47,13 @@ services:
     volumes:
       - repo:/work
       - poartifacts:/po-artifacts
+      - notices:/notices
     environment:
       GB_PO_API_KEY: ${GB_PO_API_KEY}
       GB_PO_BASE_URL: ${GB_PO_BASE_URL:-https://api.deepseek.com/v1}
       GB_PO_MODEL: ${GB_PO_MODEL:-deepseek-flash}
       GB_SNAPSHOT_HOURS: ${GB_SNAPSHOT_HOURS:-2}
+      GB_WAVE_TIME_SCALE: ${GB_WAVE_TIME_SCALE:-1}
 
 networks:
   sandbox:
@@ -57,4 +63,5 @@ networks:
 volumes:
   repo:
   poartifacts:
+  notices:
   egresslog:

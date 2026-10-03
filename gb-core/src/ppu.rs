@@ -170,7 +170,7 @@ impl Ppu {
                 let i = (self.bcps & 0x3F) as usize;
                 self.bg_palette[i] = value;
                 if self.bcps & 0x80 != 0 {
-                    self.bcps = 0x80 | ((self.bcps.wrapping_add(1)) & 0x1F);
+                    self.bcps = 0x80 | ((self.bcps.wrapping_add(1)) & 0x3F);
                 }
             }
             0xFF6A => self.ocps = value & 0xBF,

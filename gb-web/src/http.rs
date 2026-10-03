@@ -14,7 +14,7 @@ pub const MAX_HEADER_BYTES: usize = 64 * 1024;
 /// handler answers `413`.
 pub const MAX_BODY_BYTES: usize = 9 * 1024 * 1024;
 /// How long a stalled connection may block a worker thread.
-const READ_TIMEOUT: Duration = Duration::from_secs(60);
+const READ_TIMEOUT: Duration = Duration::from_millis(750);
 
 /// A parsed HTTP request.
 pub struct Request {
@@ -259,7 +259,7 @@ fn url_decode(s: &str) -> String {
                 out.push(b' ');
                 i += 1;
             }
-            b'%' if i + 2 < bytes.len() => match (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+            b'%' if i + 3 < bytes.len() => match (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
                 (Some(hi), Some(lo)) => {
                     out.push((hi << 4) | lo);
                     i += 3;
@@ -299,9 +299,9 @@ mod tests {
 
     #[test]
     fn decodes_query() {
-        let params = parse_query("q=hello+world&cgb=none&x=%41%2f");
+        let params = parse_query("q=hello+world&cgb=none&x=%41%2fB");
         assert_eq!(params[0], ("q".to_string(), "hello world".to_string()));
         assert_eq!(params[1], ("cgb".to_string(), "none".to_string()));
-        assert_eq!(params[2], ("x".to_string(), "A/".to_string()));
+        assert_eq!(params[2], ("x".to_string(), "A/B".to_string()));
     }
 }

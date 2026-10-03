@@ -919,7 +919,7 @@ impl Server {
         };
         let mut bytes = Vec::with_capacity(len as usize);
         for i in 0..len {
-            bytes.push(emu.peek(addr.saturating_add(i as u16)));
+            bytes.push(emu.peek(addr.wrapping_add(i as u16)));
         }
         Response::json(obj(vec![
             ("addr", int(addr as i64)),

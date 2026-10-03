@@ -16,6 +16,8 @@ Agent kwargs (--ak key=value):
   run_seconds     wall-clock budget for the adapter loop (default 172500 ≈ 47h55m)
   chaos_after_sec kill the in-flight agent process once, this many seconds in
                   (default 0 = never; the smoke jobs use 480 to test resumption)
+  notice_max_wait_sec  longest wait before an invocation is interrupted to deliver
+                  newly filed issues (default 1800; harness/agents/protocol/notices.py)
   model           model id passed to the agent (default from -m)
 """
 from __future__ import annotations
@@ -38,10 +40,12 @@ class _GbAgent(BaseInstalledAgent):
     ADAPTER_DIR = "/opt/gb-agents"
 
     def __init__(self, logs_dir: Path, model_name: str | None = None, run_seconds: int = 172_500,
-                 chaos_after_sec: int = 0, model: str | None = None, **kwargs):
+                 chaos_after_sec: int = 0, notice_max_wait_sec: int = 1800, model: str | None = None,
+                 **kwargs):
         super().__init__(logs_dir=logs_dir, model_name=model_name, **kwargs)
         self.run_seconds = int(run_seconds)
         self.chaos_after_sec = int(chaos_after_sec)
+        self.notice_max_wait_sec = int(notice_max_wait_sec)
         self.model = model or self._parsed_model_name or "deepseek-flash"
 
     def version(self) -> str | None:
@@ -62,6 +66,8 @@ class _GbAgent(BaseInstalledAgent):
             "GB_ARM": self.name(),
             "GB_TRAJECTORY_DIR": "/logs/agent/trajectory",
             "GB_CHAOS_AFTER_SEC": str(self.chaos_after_sec),
+            "GB_NOTICE_MAX_WAIT_SEC": str(self.notice_max_wait_sec),
+            "GB_NOTICES_DIR": "/notices",
         }
 
     async def _run_adapter(self, environment: BaseEnvironment, cmd: str, env: dict[str, str]) -> None:

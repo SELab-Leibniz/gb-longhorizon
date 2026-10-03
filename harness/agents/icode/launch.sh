@@ -49,6 +49,8 @@ log() { printf '{"t":%s,"event":"%s"%s}\n' "$(date +%s)" "$1" "${2:-}" >> "$LOG"
 # Same prompts for every agent (harness/agents/protocol/README.md)
 CONTINUE_PROMPT="$(cat "$HERE/../protocol/continue.txt")"
 RECHECK_PROMPT="$(cat "$HERE/../protocol/recheck.txt")"
+# New issues filed during the run are delivered as prompts (protocol/notices.py)
+NOTICES="$HERE/../protocol/notices.py"
 
 # ---- process control ---------------------------------------------------
 # iCode renames its process (it shows up as "chrys"), so never match by name:
@@ -61,10 +63,12 @@ kill_tree() {   # SIGKILL a process and all its descendants, leaves first
   kill -KILL "$p" 2>/dev/null || true
 }
 CHAOS_PID=""
+WATCH_PID=""
 on_term() {     # the run's time budget expired (timeout -s TERM) or Harbor stops us
   log "adapter.stop" ",\"signal\":\"TERM\""
   kill_tree "$(cat "$PIDFILE" 2>/dev/null)"
   [[ -n "$CHAOS_PID" ]] && kill_tree "$CHAOS_PID"
+  [[ -n "$WATCH_PID" ]] && kill_tree "$WATCH_PID"
   exit 143
 }
 nap() { sleep "$1" & wait $!; }   # interruptible sleep, so TERM is handled at once
@@ -99,6 +103,12 @@ if [[ "${GB_CHAOS_AFTER_SEC:-0}" -gt 0 && ! -f "$GB_TRAJECTORY_DIR/chaos_done" ]
   CHAOS_PID=$!
 fi
 
+# Notice watcher: interrupts a running invocation so newly filed issues are
+# delivered — at the first commit after their release, or GB_NOTICE_MAX_WAIT_SEC after it.
+"$PY" "$NOTICES" watch --traj "$GB_TRAJECTORY_DIR" --log "$LOG" --pidfile "$PIDFILE" \
+      --max-wait "${GB_NOTICE_MAX_WAIT_SEC:-1800}" &
+WATCH_PID=$!
+
 session="$(cat "$STATE" 2>/dev/null || true)"
 fail_streak=0
 log "adapter.start" ",\"arm\":\"${GB_ARM:-}\",\"resume_session\":\"$session\""
@@ -106,11 +116,18 @@ log "adapter.start" ",\"arm\":\"${GB_ARM:-}\",\"resume_session\":\"$session\""
 while true; do
   out="$GB_TRAJECTORY_DIR/run_$(date +%s).json"
   sub_before="$(stat -c %Y "$WORK/SUBMISSION.md" 2>/dev/null || echo 0)"
+  notice="$("$PY" "$NOTICES" take --traj "$GB_TRAJECTORY_DIR" --log "$LOG")"
   if [[ -z "$session" ]]; then
-    "$ICODE" run --task TASK.md -a LongRun -m gbmodel00001 -C "$WORK" --json > "$out" 2>> "$GB_TRAJECTORY_DIR/icode_stderr.log" &
+    task="TASK.md"
+    if [[ -n "$notice" ]]; then
+      task="$GB_TRAJECTORY_DIR/task_with_notice.md"
+      { cat "$WORK/TASK.md"; printf '\n\n%s\n' "$notice"; } > "$task"
+    fi
+    "$ICODE" run --task "$task" -a LongRun -m gbmodel00001 -C "$WORK" --json > "$out" 2>> "$GB_TRAJECTORY_DIR/icode_stderr.log" &
   else
     prompt="$CONTINUE_PROMPT"
     [[ "${last_done:-0}" == 1 ]] && prompt="$RECHECK_PROMPT"
+    [[ -n "$notice" ]] && prompt="$notice"
     "$ICODE" run "$prompt" -a LongRun -m gbmodel00001 -s "$session" -C "$WORK" --json > "$out" 2>> "$GB_TRAJECTORY_DIR/icode_stderr.log" &
   fi
   echo $! > "$PIDFILE"
@@ -133,6 +150,13 @@ except Exception: print("")' "$out")"
   sub_after="$(stat -c %Y "$WORK/SUBMISSION.md" 2>/dev/null || echo 0)"
   last_done=0; { grep -q "DONE" <<<"$result" || [[ "$sub_after" != "$sub_before" ]]; } && last_done=1
   log "invocation.end" ",\"rc\":$rc,\"session\":\"$session\",\"session_recovered\":$recovered,\"done\":$last_done,\"out\":\"$(basename "$out")\""
+  if [[ -f "$GB_TRAJECTORY_DIR/notice_interrupt" ]]; then
+    # stopped by the adapter to deliver new issues: not a failure; resume at once
+    log "invocation.interrupted_for_notice" ",\"session\":\"$session\""
+    nap 1
+    continue
+  fi
+  [[ $last_done == 1 ]] && "$PY" "$NOTICES" idle --log "$LOG"
 
   if [[ $rc -ne 0 ]]; then
     fail_streak=$((fail_streak+1))

@@ -44,6 +44,8 @@ cp "$H/../gb-cli/src/main.rs" "$T/tests/frozen/gb-cli/src/"
 cp "$H/../GEP-0001.md" "$H/AGENT_BRIEF.md" "$H/HIDDEN_SPEC.md" "$H/PRODUCT_OWNER.md" "$H/orchestrator/po_agent.py" \
    "$T/environment/po/"
 rm -rf "$T/environment/po/ISSUES" && cp -R "$H/../ISSUES" "$T/environment/po/ISSUES"
+# issues filed during the run (released by the sidecar, harness/showcase/waves)
+rm -rf "$T/environment/po/waves" && cp -R "$H/showcase/waves" "$T/environment/po/waves"
 
 # instruction = the agent brief body
 python3 -c "print(open('$H/AGENT_BRIEF.md').read().split('\n---\n',1)[1].lstrip())" > "$T/instruction.md"
