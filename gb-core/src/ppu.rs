@@ -11,8 +11,10 @@
 //! 2. `dmg-acid2` checks: window enable/disable mid-frame, 8×16 sprites,
 //!    sprite priority and X-ordering, BG/OBJ palette handling, LCDC bit 0
 //!    behaviour. Pass this and the framebuffer hash will match reference.
-//! 3. Pixel-FIFO with SCX fine scroll penalties and sprite fetch stalls —
-//!    only needed for the strictest Mooneye PPU timing tests.
+//! 3. Pixel FIFO with SCX fine-scroll discard, window and sprite fetch
+//!    stalls, and mid-scanline register changes taking effect at the right
+//!    pixel — required by GEP 1 §4 (Mealybug Tearoom, Mooneye
+//!    `acceptance/ppu/`).
 //!
 //! Interrupts raised: VBlank (IF bit 0) and STAT (IF bit 1, with the
 //! "STAT blocking" quirk where multiple STAT conditions only fire once).

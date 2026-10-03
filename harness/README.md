@@ -1,16 +1,21 @@
 # Harness — NOT for the agent
 
 Everything in this directory is removed from the sandbox image. It holds
-the hidden acceptance spec, the product-owner script, the grading scripts
-and the Tier-3 golden hashes. If any of this leaks into the agent's
+the product owner's answers to the specification's Open Issues, the
+product-owner script, the grading scripts and the golden data. (The
+specification itself, `GEP-0001.md`, is at the repository root: the agent
+has it.) If any of this leaks into the agent's
 workspace, the requirement-clarification measurement is void for that run.
 
 ```
 harness/
-  HIDDEN_SPEC.md          the full requirements the product owner knows
+  HIDDEN_SPEC.md          the product owner's answers to GEP 1's Open Issues (OI-1…OI-7)
   PRODUCT_OWNER.md        how the PO agent answers, and what it logs
-  AGENT_BRIEF.md          the only task statement the agent receives
-  golden/                 Tier-3 frame hashes + input scripts (generated)
+  AGENT_BRIEF.md          the task statement the agent receives (points at GEP-0001.md)
+  golden/                 DMG game frame hashes + input scripts (generated)
+  golden-cgb/             the same for the Game Boy Color games, + reference screens
+  golden-trace/           block hashes and profiles of the Gameboy Doctor reference traces
+  extra_assets/           pins and lists for the CGB / Mealybug assets
   harbor/                 THE WAY TO RUN THE STUDY: Harbor task + agents + jobs (see harbor/README.md)
   agents/                 adapter loops for icode/ and jiuwenswarm/ (used by harbor/agents)
   orchestrator/           po_agent.py (used by the PO sidecar), run.py + stub_agent.py for local dry runs
@@ -19,7 +24,13 @@ harness/
     fetch_assets.sh       download Pan Docs, opcode table, test ROMs, homebrew
     vendor.sh             vendor crates and flip cargo to offline
     make_golden.sh        run the reference emulator over the game scripts
+    fetch_extra_assets.sh CGB and Mealybug test ROMs, CGB games (called by fetch_assets.sh)
+    build_assets.sh       pristine ROM copy for the verifier (harness/.assets/)
     grade.py              run all tiers against a repo checkout → JSON
+    api_conformance.py    hidden gb-server (debugger API) suite
+    web_conformance.py    hidden gb-web (library API) suite
+    ui_e2e.py             hidden front-end / player suite (headless Chromium)
+    wasm_check.py         gb-wasm vs native frame hashes (Node.js)
     similarity.sh         compare gb-core against known Rust GB emulators
   Dockerfile              sandbox image: toolchain, vendored crates, assets, no network
 ```

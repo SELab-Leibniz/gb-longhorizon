@@ -1,4 +1,4 @@
-//! `gb-core` — a headless Game Boy (DMG) emulator core.
+//! `gb-core` — a headless Game Boy (DMG) and Game Boy Color (CGB) emulator core.
 //!
 //! The crate is organised the way the hardware is organised. Each module
 //! owns one piece of the console and exposes a small, explicit interface;

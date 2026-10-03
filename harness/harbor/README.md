@@ -50,7 +50,7 @@ uploaded to `/tests` only after the agent has stopped.
 harness/harbor/
   task/
     task.toml                 48 h agent timeout, 150 min verifier, 4 CPU / 16 GB, artifacts from sidecars
-    instruction.md            staged from harness/AGENT_BRIEF.md (the thin brief)
+    instruction.md            staged from harness/AGENT_BRIEF.md (the brief; points at GEP-0001.md)
     environment/
       Dockerfile              rust + scaffold @ pinned commit + assets + vendored crates + both agents
       docker-compose.yaml     networks, repo volume, egress + po sidecars

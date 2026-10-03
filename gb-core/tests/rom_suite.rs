@@ -22,8 +22,8 @@
 //!   (shades on DMG, RGB555 on CGB) and compare with `<rom>.fnv` next to the
 //!   ROM (derived from the test's own reference screenshot).
 //!
-//! Families whose directory is absent are skipped, so suites delivered later
-//! (e.g. with a change request) simply start running when their ROMs appear.
+//! Families whose directory is absent are skipped (e.g. on a machine where
+//! only some assets were fetched).
 //! * `roms/test/acid2/dmg-acid2.gb` — run a fixed number of frames and
 //!   compare the framebuffer FNV-1a hash with `roms/test/acid2/expected.fnv`.
 //!

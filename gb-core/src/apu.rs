@@ -1,11 +1,12 @@
 //! Audio Processing Unit: registers FF10–FF26 and wave RAM FF30–FF3F.
 //!
-//! Four channels (pulse ×2, wave, noise) mixed into stereo samples. This is
-//! Tier 4 in the acceptance ladder — the headless harness only requires
-//! that register reads/writes behave (Blargg's `cpu_instrs` touches NR52)
-//! until then. Games must not crash because the APU is unimplemented, so
-//! a minimal first version is: store writes, return them (with the
-//! read-back masks from Pan Docs "Audio Registers"), emit silence.
+//! Four channels (pulse ×2, wave, noise) mixed into stereo samples. GEP 1
+//! R-CORE-5 requires all of it (measured by Blargg `dmg_sound` and
+//! `cgb_sound`); host audio output is not required. Registers must behave
+//! from the start (Blargg's `cpu_instrs` touches NR52) and games must not
+//! crash because the APU is incomplete, so a sensible first version is:
+//! store writes, return them with the read-back masks from Pan Docs "Audio
+//! Registers", emit silence.
 
 use crate::emulator::StateError;
 

@@ -67,7 +67,8 @@ RUN sed -i 's/members = \["gb-core", "gb-cli", "gb-gui"\]/members = ["gb-core", 
     && python3 - <<'PYEOF'
 import re, pathlib
 p = pathlib.Path("README.md"); s = p.read_text()
-s = s.replace("A small window front-end (`gb-gui`) exists\nfor demos.", "(A demo window front-end exists outside this headless environment.)")
+s = re.sub(r"A small window front-end \(`gb-gui`\)\s+exists\s+for\s+demos\.",
+           "(A demo window front-end exists outside this headless environment.)", s)
 s = re.sub(r"^gb-gui/ .*\n", "", s, flags=re.M)
 s = re.sub(r"^cargo run -p gb-gui .*\n", "", s, flags=re.M)
 p.write_text(s)

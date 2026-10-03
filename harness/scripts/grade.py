@@ -74,13 +74,17 @@ def run_roms(co, roms, root, runner, max_hung=3):
 
 def tier0(co):
     r = {}
-    code, out, err, secs = sh(["cargo", "build", "--release", "--offline"], co, timeout=900)
+    # The gate is the core + the frozen CLI: a broken new crate (gb-web, …)
+    # costs that crate's tiers and the lint score, not every score.
+    code, out, err, secs = sh(["cargo", "build", "--release", "--offline", "-p", "gb-core", "-p", "gb-cli"],
+                              co, timeout=900)
     r["build"] = {"ok": code == 0, "secs": round(secs, 1), "stderr_tail": err[-2000:]}
     if code != 0:
         return r
-    code, out, err, secs = sh(["cargo", "clippy", "--release", "--offline", "--all-targets"], co, timeout=900)
+    code, out, err, secs = sh(["cargo", "clippy", "--release", "--offline", "--workspace", "--all-targets"],
+                              co, timeout=1200)
     r["clippy"] = {"ok": code == 0, "secs": round(secs, 1), "stderr_tail": err[-2000:]}
-    code, out, err, secs = sh(["cargo", "fmt", "--check"], co, timeout=120)
+    code, out, err, secs = sh(["cargo", "fmt", "--all", "--check"], co, timeout=120)
     r["fmt"] = {"ok": code == 0}
     code, out, err, secs = sh([str(co / "target/release/gb"), "--help"], co, timeout=30)
     # the frozen CLI prints usage to stderr and exits 1 for --help; any non-panic
@@ -145,7 +149,7 @@ def tier1(co):
     for sub in ("dmg_sound", "oam_bug"):
         items = {k: v for k, v in bm.items() if k.startswith(sub + "/")}
         results["blargg-mem"][sub] = {"passed": sum(1 for v in items.values() if v["status"] == "pass"), "total": len(items)}
-    # Mooneye sub-scores the hidden spec cares about.
+    # Mooneye sub-scores the GEP acceptance table uses.
     moon = results["mooneye"]["roms"]
     def sub(prefix):
         items = {k: v for k, v in moon.items() if k.startswith(prefix)}

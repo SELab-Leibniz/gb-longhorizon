@@ -53,8 +53,10 @@ TESTING.md          how to verify your work, step by step
 
 ## Rules
 
-1. `gb-core` has **no external dependencies** and `#![forbid(unsafe_code)]`.
-   Both are enforced by the build. Don't add crates to work around a problem.
+1. No crate has **external dependencies** (GEP 1 R-BASE-1: there is no
+   network, and everything — HTTP, JSON, SHA-256, PNG — is written here), and
+   `gb-core` is `#![forbid(unsafe_code)]` (only `gb-wasm` may use `unsafe`,
+   for raw pointers). Don't add crates to work around a problem.
 2. Don't change the public API in `emulator.rs`, the CLI flags, or the test
    runner. Everything downstream (grading, demo) depends on them. You may add
    methods; you may not remove or rename any.
@@ -63,8 +65,8 @@ TESTING.md          how to verify your work, step by step
 4. Commit early and often with messages that say *why*. Record any new
    architectural decision in `DECISIONS.md` the same way the existing ones
    are recorded.
-5. The build runs with `-D warnings`. Keep `cargo clippy --all-targets` and
-   `cargo fmt --check` clean.
+5. The build runs with `-D warnings`. Keep `cargo clippy --workspace --all-targets` and
+   `cargo fmt --all --check` clean.
 
 ## Running things
 
@@ -72,6 +74,7 @@ TESTING.md          how to verify your work, step by step
 
 ```sh
 cargo build --release                       # core + cli
+cargo build --release --workspace           # every crate, including the ones you add
 cargo test                                  # unit tests + ROM suites
 cargo test --release --test rom_suite -- --nocapture blargg
 cargo run --release -p gb-cli -- --rom roms/games/<game>.gb --frames 600 --dump-frame out.pgm --hash

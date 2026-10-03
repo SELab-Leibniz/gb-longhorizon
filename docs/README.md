@@ -16,5 +16,11 @@ Populated by `harness/scripts/fetch_assets.sh`:
   `chapter/cpu/timing.typ` explains fetch/execute overlap. The cartridge and
   peripheral chapters complement Pan Docs.
 
+- `specs/trace-example-01-special.txt` — the first 2 000 lines of the
+  reference CPU trace for `cpu_instrs/individual/01-special.gb` (GEP 1
+  Appendix A).
+
+The specification of what to build is `GEP-0001.md` at the repository root.
+
 The sandbox has no network. Everything you need about the hardware is in
 this directory; if something is missing, ask the product owner.

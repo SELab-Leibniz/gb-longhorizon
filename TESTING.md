@@ -7,9 +7,9 @@ to check your work.
 ## 1. Build and lint (must stay clean)
 
 ```sh
-cargo build --release          # -D warnings is on
-cargo clippy --all-targets     # must report nothing
-cargo fmt --check
+cargo build --release --workspace                         # -D warnings is on
+cargo clippy --release --workspace --all-targets          # must report nothing
+cargo fmt --all --check
 ```
 
 ## 2. Unit tests

@@ -1,15 +1,15 @@
-"""Product-owner agent: answers QUESTIONS.md from the hidden spec.
+"""Product-owner agent: answers QUESTIONS.md from GEP-0001.md and the Open Issue answers.
 
 Protocol (what the agent sees in TASK.md): append a question to
 QUESTIONS.md under a "## Q:" heading; the PO appends an answer under
 "## A:" within a couple of minutes.
 
-    ## Q: Do we need Game Boy Color support?
-    ## A: No — DMG only. ...
+    ## Q: What is the maximum upload size for the game library? (GEP 1 OI-1)
+    ## A: 8 MiB ...
 
 Implementation: poll the file, find "## Q:" blocks that have no "## A:"
 after them, ask an LLM (OpenAI-compatible chat API; DeepSeek works) with
-the persona in PRODUCT_OWNER.md and the facts in HIDDEN_SPEC.md, append
+the persona in PRODUCT_OWNER.md, GEP-0001.md and HIDDEN_SPEC.md, append
 the answer, and log everything to runs/<id>/po_log.jsonl for the
 clarification score.
 
@@ -38,7 +38,8 @@ question is really several questions, answer each briefly. If the
 question is ambiguous, ask ONE clarifying question back instead.
 
 Also output, on the last line, a machine-readable tag listing which
-spec item IDs your answer drew on, e.g.  [items: S1, A2]  or  [items: none].
+item IDs your answer drew on (Open Issues or GEP requirement IDs),
+e.g.  [items: OI-1]  or  [items: R-WEB-4, OI-2]  or  [items: none].
 
 === PERSONA AND RULES (PRODUCT_OWNER.md) ===
 {persona}

@@ -1,9 +1,9 @@
 # Build settings shared by every crate in the workspace.
 #
 # The agent sandbox runs with NO network. Before the run, the harness
-# vendors the (tiny) dependency set with `harness/scripts/vendor.sh`,
-# which uncomments the [source] block below. gb-core itself has zero
-# dependencies; only gb-gui pulls in a windowing crate.
+# vendors the dependency set with `harness/scripts/vendor.sh`, which
+# uncomments the [source] block below. Apart from the optional demo window
+# (not part of the sandbox), no crate has dependencies (GEP 1 R-BASE-1).
 
 [build]
 rustflags = ["-D", "warnings"]
